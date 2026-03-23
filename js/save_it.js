@@ -13,33 +13,275 @@ app.registerExtension({
 
             const self = this;
 
-            // Hide the save_trigger number widget
+            // ── Hide internal save_trigger widget ──────────────────────────
             const triggerWidget = this.widgets?.find(w => w.name === "save_trigger");
             if (triggerWidget) {
                 triggerWidget.type = "hidden";
                 triggerWidget.computeSize = () => [0, -4];
             }
 
-            // Helper to get autosave state
-            const isAutoSave = () => {
-                const w = self.widgets?.find(w => w.name === "autosave");
-                return w ? w.value : false;
-            };
+            // ── Helper getters ─────────────────────────────────────────────
+            const getWidget = (name) => self.widgets?.find(w => w.name === name);
+            const isAutoSave = () => getWidget("autosave")?.value ?? false;
+            const getPrefix = () => getWidget("filename_prefix")?.value ?? "ComfyUI";
+            const getFormat = () => getWidget("format")?.value ?? "PNG";
+            const getQuality = () => getWidget("quality")?.value ?? 95;
+            const getTimestamp = () => getWidget("use_timestamp")?.value ?? false;
 
-            // Save Image button
-            const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
+            // ── Toast notification ─────────────────────────────────────────
+            function showToast(message, isError = false) {
+                const existing = document.getElementById("save_it_toast");
+                if (existing) existing.remove();
 
-                // Do nothing if AutoSave is ON
-                if (isAutoSave()) return;
+                const toast = document.createElement("div");
+                toast.id = "save_it_toast";
+                toast.style.cssText = `
+                    position: fixed;
+                    bottom: 30px;
+                    right: 30px;
+                    background: ${isError ? "#c0392b" : "#1a6b4a"};
+                    color: white;
+                    padding: 12px 20px;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-family: sans-serif;
+                    z-index: 99999;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+                    max-width: 400px;
+                    word-break: break-all;
+                    transition: opacity 0.4s ease;
+                `;
+                toast.textContent = message;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.opacity = "0";
+                    setTimeout(() => toast.remove(), 400);
+                }, 3500);
+            }
 
-                const images = self.imgs;
-                if (!images || images.length === 0) {
-                    alert("No image to save. Please run the workflow first.");
-                    return;
+            // ── Save History ───────────────────────────────────────────────
+            const HISTORY_KEY = "save_it_history";
+            const MAX_HISTORY = 50;
+
+            function loadHistory() {
+                try {
+                    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+                } catch { return []; }
+            }
+
+            function addToHistory(entry) {
+                const history = loadHistory();
+                history.unshift(entry);
+                if (history.length > MAX_HISTORY) history.pop();
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+            }
+
+            // ── Favorite Folders ───────────────────────────────────────────
+            async function loadFavorites() {
+                try {
+                    const res = await api.fetchApi("/save_it/favorites");
+                    return res.ok ? await res.json() : [];
+                } catch { return []; }
+            }
+
+            async function saveFavorites(folders) {
+                await api.fetchApi("/save_it/favorites", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folders })
+                });
+            }
+
+            function showFavoritesDialog() {
+                const existing = document.getElementById("save_it_favorites_dialog");
+                if (existing) { existing.remove(); return; }
+
+                const overlay = document.createElement("div");
+                overlay.id = "save_it_favorites_dialog";
+                overlay.style.cssText = `
+                    position: fixed; inset: 0;
+                    background: rgba(0,0,0,0.6);
+                    z-index: 99998;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                `;
+
+                const dialog = document.createElement("div");
+                dialog.style.cssText = `
+                    background: #1e2a2a;
+                    border: 1px solid #2a9d8f;
+                    border-radius: 10px;
+                    padding: 20px;
+                    width: 460px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    color: white;
+                    font-family: sans-serif;
+                `;
+
+                dialog.innerHTML = `
+                    <h3 style="margin:0 0 12px;color:#2a9d8f;">⭐ Favorite Folders</h3>
+                    <p style="font-size:12px;color:#aaa;margin:0 0 10px;">
+                        Add folder paths to quickly switch your save location.<br>
+                        Format: <code style="color:#2a9d8f;">SubFolder/OptionalName</code> or just <code style="color:#2a9d8f;">SubFolder/_</code>
+                    </p>
+                    <div id="save_it_fav_list" style="margin-bottom:12px;"></div>
+                    <div style="display:flex;gap:8px;margin-bottom:14px;">
+                        <input id="save_it_fav_input" type="text" placeholder="e.g. Projects/Portraits/_"
+                            style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #2a9d8f;
+                                   background:#0d1f1f;color:white;font-size:13px;outline:none;" />
+                        <button id="save_it_fav_add"
+                            style="padding:7px 14px;background:#2a9d8f;color:white;border:none;
+                                   border-radius:6px;cursor:pointer;font-size:13px;">Add</button>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:8px;">
+                        <button id="save_it_fav_close"
+                            style="padding:5px 12px;background:#555;color:white;border:none;
+                                   border-radius:6px;cursor:pointer;">Close</button>
+                    </div>
+                `;
+
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+
+                const listEl = dialog.querySelector("#save_it_fav_list");
+                const input = dialog.querySelector("#save_it_fav_input");
+
+                async function renderList() {
+                    const favs = await loadFavorites();
+                    listEl.innerHTML = "";
+                    if (favs.length === 0) {
+                        listEl.innerHTML = `<p style="color:#888;font-size:12px;">No favorites yet.</p>`;
+                        return;
+                    }
+                    favs.forEach((fav, i) => {
+                        const row = document.createElement("div");
+                        row.style.cssText = `display:flex;align-items:center;gap:8px;margin-bottom:6px;`;
+                        row.innerHTML = `
+                            <span style="flex:1;font-size:13px;background:#0d1f1f;
+                                padding:6px 10px;border-radius:6px;border:1px solid #333;
+                                cursor:pointer;color:#ccc;"
+                                title="Click to use this folder">📁 ${fav}</span>
+                            <button data-i="${i}" class="fav-del"
+                                style="padding:5px 10px;background:#c0392b;color:white;
+                                border:none;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>
+                        `;
+                        row.querySelector("span").addEventListener("click", () => {
+                            const pw = getWidget("filename_prefix");
+                            if (pw) pw.value = fav;
+                            overlay.remove();
+                            showToast(`📁 Switched to: ${fav}`);
+                        });
+                        row.querySelector(".fav-del").addEventListener("click", async () => {
+                            const favs2 = await loadFavorites();
+                            favs2.splice(i, 1);
+                            await saveFavorites(favs2);
+                            renderList();
+                        });
+                        listEl.appendChild(row);
+                    });
                 }
 
-                const prefixWidget = self.widgets?.find(w => w.name === "filename_prefix");
-                const filename_prefix = prefixWidget ? prefixWidget.value : "ComfyUI";
+                renderList();
+
+                dialog.querySelector("#save_it_fav_add").addEventListener("click", async () => {
+                    let val = input.value.trim();
+                    if (!val) return;
+                    // Automatically ensure path ends with /
+                    if (!val.endsWith("/") && !val.endsWith("\\")) {
+                        val = val + "/";
+                    }
+                    const favs = await loadFavorites();
+                    if (!favs.includes(val)) {
+                        favs.push(val);
+                        await saveFavorites(favs);
+                    }
+                    input.value = "";
+                    renderList();
+                });
+
+                dialog.querySelector("#save_it_fav_close").addEventListener("click", () => overlay.remove());
+                overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+            }
+
+            // ── Save History Dialog ────────────────────────────────────────
+            function showHistoryDialog() {
+                const existing = document.getElementById("save_it_history_dialog");
+                if (existing) { existing.remove(); return; }
+
+                const history = loadHistory();
+
+                const overlay = document.createElement("div");
+                overlay.id = "save_it_history_dialog";
+                overlay.style.cssText = `
+                    position: fixed; inset: 0;
+                    background: rgba(0,0,0,0.6);
+                    z-index: 99998;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                `;
+
+                const dialog = document.createElement("div");
+                dialog.style.cssText = `
+                    background: #1e2a2a;
+                    border: 1px solid #2a9d8f;
+                    border-radius: 10px;
+                    padding: 20px;
+                    width: 500px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                    color: white;
+                    font-family: sans-serif;
+                `;
+
+                let rows = "";
+                if (history.length === 0) {
+                    rows = `<p style="color:#888;font-size:13px;">No saves yet.</p>`;
+                } else {
+                    rows = history.map(h => `
+                        <div style="border-bottom:1px solid #2a3a3a;padding:8px 0;font-size:12px;">
+                            <div style="color:#2a9d8f;font-weight:bold;">📄 ${h.filename}</div>
+                            <div style="color:#aaa;margin-top:2px;">📁 ${h.path}</div>
+                            <div style="color:#666;margin-top:2px;">🕐 ${h.time}</div>
+                        </div>
+                    `).join("");
+                }
+
+                dialog.innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <h3 style="margin:0;color:#2a9d8f;">📋 Save History</h3>
+                        <div style="display:flex;gap:8px;">
+                            <button id="save_it_hist_clear"
+                                style="padding:5px 12px;background:#c0392b;color:white;border:none;
+                                border-radius:6px;cursor:pointer;font-size:12px;">Clear</button>
+                            <button id="save_it_hist_close"
+                                style="padding:5px 12px;background:#555;color:white;border:none;
+                                border-radius:6px;cursor:pointer;font-size:12px;">Close</button>
+                        </div>
+                    </div>
+                    <div>${rows}</div>
+                `;
+
+                overlay.appendChild(dialog);
+                document.body.appendChild(overlay);
+
+                dialog.querySelector("#save_it_hist_close").addEventListener("click", () => overlay.remove());
+                dialog.querySelector("#save_it_hist_clear").addEventListener("click", () => {
+                    localStorage.removeItem(HISTORY_KEY);
+                    overlay.remove();
+                    showToast("History cleared.");
+                });
+                overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+            }
+
+            // ── Core save logic ────────────────────────────────────────────
+            async function doSaveImgs(images) {
+                const filename_prefix = getPrefix();
+                const format = getFormat();
+                const quality = getQuality();
+                const use_timestamp = getTimestamp();
 
                 for (const img of images) {
                     const url = new URL(img.src, window.location.origin);
@@ -53,61 +295,110 @@ app.registerExtension({
                         const response = await api.fetchApi("/save_it/save", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ filename, subfolder, type, filename_prefix })
+                            body: JSON.stringify({ filename, subfolder, type, filename_prefix, format, quality, use_timestamp })
                         });
 
                         if (response.ok) {
                             const msg = await response.text();
+                            const savedPath = msg.replace("Saved to ", "");
+                            const savedFilename = savedPath.split(/[\\/]/).pop();
+                            addToHistory({
+                                filename: savedFilename,
+                                path: savedPath,
+                                time: new Date().toLocaleString()
+                            });
+                            showToast(`✅ Saved: ${savedFilename}`);
                             console.log(`Save_It: ${msg}`);
                         } else {
                             const err = await response.text();
-                            alert(`Save failed: ${err}`);
+                            showToast(`❌ Save failed: ${err}`, true);
                         }
                     } catch (e) {
-                        alert(`Save error: ${e.message}`);
+                        showToast(`❌ Error: ${e.message}`, true);
                     }
                 }
-            });
+            }
 
+            async function doSave() {
+                const images = self.imgs;
+                if (!images || images.length === 0) {
+                    showToast("No image to save. Please run the workflow first.", true);
+                    return;
+                }
+                await doSaveImgs(images);
+            }
+
+            // ── Save Image button ──────────────────────────────────────────
+            const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
+                if (isAutoSave()) return;
+                await doSave();
+            });
             saveBtn.serialize = false;
 
-            // Open Folder button
+            // ── Open Folder button ─────────────────────────────────────────
             const folderBtn = this.addWidget("button", "📂  Open Output Folder", null, async () => {
-
-                const prefixWidget = self.widgets?.find(w => w.name === "filename_prefix");
-                const filename_prefix = prefixWidget ? prefixWidget.value : "ComfyUI";
-
                 try {
                     const response = await api.fetchApi("/save_it/open_folder", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ filename_prefix })
+                        body: JSON.stringify({ filename_prefix: getPrefix() })
                     });
-
                     if (!response.ok) {
                         const err = await response.text();
-                        alert(`Could not open folder: ${err}`);
+                        showToast(`❌ Could not open folder: ${err}`, true);
                     }
                 } catch (e) {
-                    alert(`Error: ${e.message}`);
+                    showToast(`❌ Error: ${e.message}`, true);
                 }
             });
-
             folderBtn.serialize = false;
 
-            // Watch the autosave toggle and dim/undim the Save button
-            const autosaveWidget = this.widgets?.find(w => w.name === "autosave");
+            // ── Save History button ────────────────────────────────────────
+            const historyBtn = this.addWidget("button", "📋  Save History", null, () => {
+                showHistoryDialog();
+            });
+            historyBtn.serialize = false;
+
+            // ── Favorite Folders button ────────────────────────────────────
+            const favBtn = this.addWidget("button", "⭐  Favorite Folders", null, () => {
+                showFavoritesDialog();
+            });
+            favBtn.serialize = false;
+
+            // ── Watch autosave toggle to dim/undim Save button ─────────────
+            const autosaveWidget = getWidget("autosave");
             if (autosaveWidget) {
                 const originalCallback = autosaveWidget.callback;
                 autosaveWidget.callback = function(value) {
                     originalCallback?.call(this, value);
-                    // Dim the save button when AutoSave is ON
                     saveBtn.disabled = value;
                 };
-
-                // Set initial state on load
                 saveBtn.disabled = autosaveWidget.value;
             }
+
+			// ── AutoSave: only save newly generated images ─────────────────
+			let lastSavedSrc = null;
+
+			this.onExecuted = function(output) {
+				if (isAutoSave()) {
+					setTimeout(() => {
+						const images = self.imgs;
+						if (!images || images.length === 0) return;
+
+						// Only save the first image and only if its src is new
+						const img = images[0];
+						if (!img || img.src === lastSavedSrc) return;
+
+						// Check it's actually a fresh temp image not a previously saved output
+						const url = new URL(img.src, window.location.origin);
+						const type = url.searchParams.get("type") || "";
+						if (type !== "temp") return;
+
+						lastSavedSrc = img.src;
+						doSaveImgs([img]);
+					}, 300);
+				}
+			};
         };
     }
 });
