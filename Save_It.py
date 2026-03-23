@@ -75,7 +75,6 @@ async def open_folder_handler(request):
 
         out_base_dir = folder_paths.get_output_directory()
 
-        # Parse subfolder from prefix, same logic as save
         prefix_parts = filename_prefix.replace("\\", "/").split("/")
         if len(prefix_parts) > 1:
             out_subfolder = "/".join(prefix_parts[:-1])
@@ -83,11 +82,8 @@ async def open_folder_handler(request):
             out_subfolder = ""
 
         out_dir = os.path.join(out_base_dir, out_subfolder) if out_subfolder else out_base_dir
-
-        # Create the folder if it doesn't exist yet
         os.makedirs(out_dir, exist_ok=True)
 
-        # Open the folder in the file explorer (works on Windows, Mac and Linux)
         if sys.platform == "win32":
             os.startfile(out_dir)
         elif sys.platform == "darwin":
@@ -150,6 +146,12 @@ class Save_It:
         return {
             "required": {
                 "images": ("IMAGE", {"tooltip": "The images to save."}),
+                "autosave": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "AutoSave ON",
+                    "label_off": "AutoSave OFF",
+                    "tooltip": "When ON, images are saved automatically after each run. The Save button is disabled.",
+                }),
                 "filename_prefix": ("STRING", {
                     "default": "ComfyUI",
                     "tooltip": "The prefix for the file to save. Use subfolder/name to save into a subfolder, e.g. MyFolder/MyImage",
@@ -170,7 +172,7 @@ class Save_It:
         }
 
     @classmethod
-    def IS_CHANGED(s, images, filename_prefix="ComfyUI", save_trigger=0, prompt=None, extra_pnginfo=None):
+    def IS_CHANGED(s, images, autosave=False, filename_prefix="ComfyUI", save_trigger=0, prompt=None, extra_pnginfo=None):
         return save_trigger
 
     RETURN_TYPES = ()
@@ -180,22 +182,75 @@ class Save_It:
     DISPLAY_NAME = "Save_It"
     DESCRIPTION = "Saves the input images to your ComfyUI output directory when you click the Save Image button."
 
-    def save_images(self, images, filename_prefix="ComfyUI", save_trigger=0, prompt=None, extra_pnginfo=None):
+    def save_images(self, images, autosave=False, filename_prefix="ComfyUI", save_trigger=0, prompt=None, extra_pnginfo=None):
         if images is None:
             return {"ui": {"images": list()}}
 
-        output_dir = folder_paths.get_temp_directory()
-        self.type = "temp"
-        temp_prefix = "save_it_preview" + self.prefix_append
+        if autosave:
+            # AutoSave ON: save directly to output folder immediately
+            out_base_dir = folder_paths.get_output_directory()
 
-        results = save_images_with_metadata(
-            images=images,
-            output_dir=output_dir,
-            save_type=self.type,
-            prompt=prompt,
-            extra_pnginfo=extra_pnginfo,
-            prefix=temp_prefix,
-            compress_level=self.compress_level
-        )
+            prefix_parts = filename_prefix.replace("\\", "/").split("/")
+            if len(prefix_parts) > 1:
+                out_subfolder = "/".join(prefix_parts[:-1])
+                base_name = prefix_parts[-1].strip("_").strip()
+            else:
+                out_subfolder = ""
+                base_name = prefix_parts[0].strip("_").strip()
 
-        return {"ui": {"images": results}}
+            out_dir = os.path.join(out_base_dir, out_subfolder) if out_subfolder else out_base_dir
+            os.makedirs(out_dir, exist_ok=True)
+
+            results = []
+            for image in images:
+                arr = image.cpu().numpy()
+                if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):
+                    arr = np.transpose(arr, (1, 2, 0))
+                if arr.dtype != np.uint8:
+                    arr = (255. * arr).clip(0, 255).astype('uint8')
+
+                img = Image.fromarray(arr)
+                metadata = PngInfo()
+                if prompt:
+                    metadata.add_text("prompt", json.dumps(prompt))
+                if extra_pnginfo:
+                    for key, value in extra_pnginfo.items():
+                        metadata.add_text(key, json.dumps(value))
+
+                # Find next available counter
+                counter = 1
+                while True:
+                    if base_name:
+                        new_filename = f"{base_name}_{counter:05}.png"
+                    else:
+                        new_filename = f"{counter:05}.png"
+                    dst_path = os.path.join(out_dir, new_filename)
+                    if not os.path.exists(dst_path):
+                        break
+                    counter += 1
+
+                img.save(dst_path, pnginfo=metadata, compress_level=self.compress_level)
+                results.append({
+                    "filename": new_filename,
+                    "subfolder": out_subfolder,
+                    "type": "output"
+                })
+
+            return {"ui": {"images": results}}
+
+        else:
+            # AutoSave OFF: save to temp for preview only
+            output_dir = folder_paths.get_temp_directory()
+            temp_prefix = "save_it_preview" + self.prefix_append
+
+            results = save_images_with_metadata(
+                images=images,
+                output_dir=output_dir,
+                save_type="temp",
+                prompt=prompt,
+                extra_pnginfo=extra_pnginfo,
+                prefix=temp_prefix,
+                compress_level=self.compress_level
+            )
+
+            return {"ui": {"images": results}}

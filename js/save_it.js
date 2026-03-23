@@ -20,8 +20,17 @@ app.registerExtension({
                 triggerWidget.computeSize = () => [0, -4];
             }
 
+            // Helper to get autosave state
+            const isAutoSave = () => {
+                const w = self.widgets?.find(w => w.name === "autosave");
+                return w ? w.value : false;
+            };
+
             // Save Image button
-            const btn = this.addWidget("button", "💾  Save Image", null, async () => {
+            const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
+
+                // Do nothing if AutoSave is ON
+                if (isAutoSave()) return;
 
                 const images = self.imgs;
                 if (!images || images.length === 0) {
@@ -60,7 +69,7 @@ app.registerExtension({
                 }
             });
 
-            btn.serialize = false;
+            saveBtn.serialize = false;
 
             // Open Folder button
             const folderBtn = this.addWidget("button", "📂  Open Output Folder", null, async () => {
@@ -85,6 +94,20 @@ app.registerExtension({
             });
 
             folderBtn.serialize = false;
+
+            // Watch the autosave toggle and dim/undim the Save button
+            const autosaveWidget = this.widgets?.find(w => w.name === "autosave");
+            if (autosaveWidget) {
+                const originalCallback = autosaveWidget.callback;
+                autosaveWidget.callback = function(value) {
+                    originalCallback?.call(this, value);
+                    // Dim the save button when AutoSave is ON
+                    saveBtn.disabled = value;
+                };
+
+                // Set initial state on load
+                saveBtn.disabled = autosaveWidget.value;
+            }
         };
     }
 });
