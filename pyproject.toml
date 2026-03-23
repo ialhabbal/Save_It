@@ -1,0 +1,15 @@
+[project]
+name = "Save_It"
+description = "Simple Custom Node To Display Image and Waits for User to Save It"
+version = "0.0.1"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/ialhabbal/Save_It"
+
+[tool.comfy]
+PublisherId = "ialhabbal"
+DisplayName = "Save_It"
+Icon = "https://raw.githubusercontent.com/ialhabbal/Save_It/main/save_it.png"
+includes = []
