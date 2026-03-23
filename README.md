@@ -2,7 +2,7 @@
 Simple ComfyUI Save node that Displays the generated Images and waits for the user to save it.
 # Save_It — ComfyUI Custom Node
 
-![Save_It Node](save_it.jpg)
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/Save_It.jpg)
 
 Saves generated images to a specified folder without rerunning the workflow.
 
