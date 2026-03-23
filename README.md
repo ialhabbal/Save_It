@@ -26,14 +26,11 @@ Alternatively,
 ## Usage
 Node Inputs
 
-images
-Connect this to the output of any node that produces an image, such as a VAE Decode node. This is the image that will be previewed and saved.
+images: Connect this to the output of any node that produces an image, such as a VAE Decode node. This is the image that will be previewed and saved.
 
-AutoSave (ON/OFF toggle)
-When set to OFF (the default), the node will display the generated image but will not save it until you click the Save Image button. When set to ON, the node will automatically save every image immediately after it is generated, without you needing to click anything. When AutoSave is ON, the Save Image button is dimmed and cannot be clicked.
+AutoSave (ON/OFF toggle): When set to OFF (the default), the node will display the generated image but will not save it until you click the Save Image button. When set to ON, the node will automatically save every image immediately after it is generated, without you needing to click anything. When AutoSave is ON, the Save Image button is dimmed and cannot be clicked.
 
-filename_prefix
-This is a text field where you type the name and location for your saved image. It works in the following ways:
+filename_prefix: This is a text field where you type the name and location for your saved image. It works in the following ways:
 
 - Type just a name like MyImage and the image will be saved as MyImage_00001.png in your main ComfyUI output folder.
 - Type a folder and name like Portraits/MyImage and the image will be saved as MyImage_00001.png inside a Portraits subfolder in your output folder. The - subfolder will be created automatically if it does not exist.
