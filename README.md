@@ -1,4 +1,5 @@
-# Save_It — ComfyUI Custom Node
+# Save_It 
+## ComfyUI Custom Node
 Save_It is a ComfyUI custom node that gives you full control over when and how your generated images are saved. Unlike the default save node, Save_It displays your image first and lets you decide what to do with it — save it manually, save it automatically, choose the format, organize it into folders, and more.
 
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/Save_It.jpg)
