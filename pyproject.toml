@@ -1,7 +1,7 @@
 [project]
 name = "Save_It"
 description = "Simple Custom Node To Display Image and Waits for User to Save It"
-version = "0.0.1"
+version = "0.0.2"
 license = { file = "LICENSE" }
 dependencies = []
 
