@@ -14,4 +14,4 @@ Saves generated images to a specified folder without rerunning the workflow.
 - Connect your IMAGE output to the node
 - Type your desired folder/filename prefix, e.g. `MyFolder/_`
 - Run the workflow to preview the image
-- Click **Save Image** to save without rerunning
+- Click **Save Image** to save
