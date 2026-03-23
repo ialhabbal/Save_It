@@ -37,16 +37,14 @@ filename_prefix: This is a text field where you type the name and location for y
 - Type a folder path ending with a forward slash and underscore like Portraits/_ and the image will be saved with just a number like 00001.png inside the Portraits subfolder.
 - You can also use full absolute paths like F:\MyImages\Portraits/ to save images to any folder on your computer.
 
-format
-A dropdown menu to choose the file format for saved images. The available options are PNG, JPEG, and WebP. PNG is the default and is recommended for the highest quality with no compression loss. JPEG and WebP produce smaller file sizes but with some quality loss controlled by the Quality slider.
+format: A dropdown menu to choose the file format for saved images. The available options are PNG, JPEG, and WebP. PNG is the default and is recommended for the highest quality with no compression loss. JPEG and WebP produce smaller file sizes but with some quality loss controlled by the Quality slider.
 
-quality
-A slider that goes from 1 to 100. This only applies when the format is set to JPEG or WebP. Higher values produce better looking images with larger file sizes. Lower values produce smaller files with more visible compression. This setting has no effect when saving as PNG.
+quality: A slider that goes from 1 to 100. This only applies when the format is set to JPEG or WebP. Higher values produce better looking images with larger file sizes. Lower values produce smaller files with more visible compression. This setting has no effect when saving as PNG.
 
-Timestamp (ON/OFF toggle)
-When set to OFF (the default), saved images are numbered sequentially like 00001.png, 00002.png, and so on. The counter is remembered even after you restart ComfyUI, so your numbering never resets. When set to ON, the date and time are added to the filename instead, for example MyImage_2026-03-23_14-30-00.png. This is useful when you want to know exactly when each image was generated.
+Timestamp (ON/OFF toggle): When set to OFF (the default), saved images are numbered sequentially like 00001.png, 00002.png, and so on. The counter is remembered even after you restart ComfyUI, so your numbering never resets. When set to ON, the date and time are added to the filename instead, for example MyImage_2026-03-23_14-30-00.png. This is useful when you want to know exactly when each image was generated.
 
 Buttons
+
 Save Image: Click this button to save the currently displayed image to the location specified in the filename_prefix field. The image will not be saved until you click this button. This button is only available when AutoSave is OFF.
 
 Open Output Folder: Click this button to open the folder where your images are being saved in your file explorer (Windows Explorer on Windows, Finder on Mac). It reads the current filename_prefix to determine which folder to open. If the folder does not exist yet, it will be created automatically before opening.
