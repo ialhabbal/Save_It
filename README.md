@@ -19,7 +19,9 @@ Saves generated images to a specified folder without rerunning the workflow.
 4. Restart ComfyUI
 
 ## Usage
-- Connect your IMAGE output to the node
+- Connect your IMAGE output (vae_decode) node to the (Save_It) node
 - Type your desired folder/filename prefix, e.g. `MyFolder/_`
 - Run the workflow to preview the image
 - Click **Save Image** to save
+- If the AutoSave is turned on, the generated image will be saved automatically to your folder.
+- If the AutoSave is turned off, you need to click on "Save Image" to save the image.
