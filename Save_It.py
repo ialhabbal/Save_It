@@ -4,6 +4,8 @@ import random
 import os
 import shutil
 import string
+import subprocess
+import sys
 import numpy as np
 from aiohttp import web
 from server import PromptServer
@@ -24,7 +26,6 @@ async def save_it_handler(request):
         if not filename:
             return web.Response(status=400, text="Missing filename")
 
-        # Build source path (from temp folder)
         if file_type == "temp":
             src_dir = folder_paths.get_temp_directory()
         else:
@@ -35,10 +36,6 @@ async def save_it_handler(request):
         if not os.path.exists(src_path):
             return web.Response(status=404, text=f"File not found: {src_path}")
 
-        # Parse prefix into subfolder + base name
-        # e.g. "Interactive_Save_Test/MyImage" -> subfolder="Interactive_Save_Test", base="MyImage"
-        # e.g. "Interactive_Save_Test/_" -> subfolder="Interactive_Save_Test", base=""
-        # e.g. "ComfyUI" -> subfolder="", base="ComfyUI"
         out_base_dir = folder_paths.get_output_directory()
 
         prefix_parts = filename_prefix.replace("\\", "/").split("/")
@@ -52,7 +49,6 @@ async def save_it_handler(request):
         out_dir = os.path.join(out_base_dir, out_subfolder) if out_subfolder else out_base_dir
         os.makedirs(out_dir, exist_ok=True)
 
-        # Find the next available counter
         counter = 1
         while True:
             if base_name:
@@ -66,6 +62,40 @@ async def save_it_handler(request):
 
         shutil.copy2(src_path, dst_path)
         return web.Response(status=200, text=f"Saved to {dst_path}")
+
+    except Exception as e:
+        return web.Response(status=500, text=str(e))
+
+
+@PromptServer.instance.routes.post("/save_it/open_folder")
+async def open_folder_handler(request):
+    try:
+        data = await request.json()
+        filename_prefix = data.get("filename_prefix", "ComfyUI")
+
+        out_base_dir = folder_paths.get_output_directory()
+
+        # Parse subfolder from prefix, same logic as save
+        prefix_parts = filename_prefix.replace("\\", "/").split("/")
+        if len(prefix_parts) > 1:
+            out_subfolder = "/".join(prefix_parts[:-1])
+        else:
+            out_subfolder = ""
+
+        out_dir = os.path.join(out_base_dir, out_subfolder) if out_subfolder else out_base_dir
+
+        # Create the folder if it doesn't exist yet
+        os.makedirs(out_dir, exist_ok=True)
+
+        # Open the folder in the file explorer (works on Windows, Mac and Linux)
+        if sys.platform == "win32":
+            os.startfile(out_dir)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", out_dir])
+        else:
+            subprocess.Popen(["xdg-open", out_dir])
+
+        return web.Response(status=200, text=f"Opened {out_dir}")
 
     except Exception as e:
         return web.Response(status=500, text=str(e))
@@ -154,7 +184,6 @@ class Save_It:
         if images is None:
             return {"ui": {"images": list()}}
 
-        # Always save to temp for preview only
         output_dir = folder_paths.get_temp_directory()
         self.type = "temp"
         temp_prefix = "save_it_preview" + self.prefix_append

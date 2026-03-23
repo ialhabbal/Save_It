@@ -20,7 +20,7 @@ app.registerExtension({
                 triggerWidget.computeSize = () => [0, -4];
             }
 
-            // Add the Save Image button
+            // Save Image button
             const btn = this.addWidget("button", "💾  Save Image", null, async () => {
 
                 const images = self.imgs;
@@ -29,7 +29,6 @@ app.registerExtension({
                     return;
                 }
 
-                // Read the current filename_prefix from the widget
                 const prefixWidget = self.widgets?.find(w => w.name === "filename_prefix");
                 const filename_prefix = prefixWidget ? prefixWidget.value : "ComfyUI";
 
@@ -62,6 +61,30 @@ app.registerExtension({
             });
 
             btn.serialize = false;
+
+            // Open Folder button
+            const folderBtn = this.addWidget("button", "📂  Open Output Folder", null, async () => {
+
+                const prefixWidget = self.widgets?.find(w => w.name === "filename_prefix");
+                const filename_prefix = prefixWidget ? prefixWidget.value : "ComfyUI";
+
+                try {
+                    const response = await api.fetchApi("/save_it/open_folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ filename_prefix })
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.text();
+                        alert(`Could not open folder: ${err}`);
+                    }
+                } catch (e) {
+                    alert(`Error: ${e.message}`);
+                }
+            });
+
+            folderBtn.serialize = false;
         };
     }
 });
