@@ -328,6 +328,105 @@ app.registerExtension({
                 await doSaveImgs(images);
             }
 
+            // ── Browse & Set Path button ───────────────────────────────────
+            const browseBtn = this.addWidget("button", "📁  Browse & Set Save Path", null, async () => {
+                try {
+                    const response = await api.fetchApi("/save_it/browse_folder", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({})
+                    });
+
+                    if (response.status === 204) return; // user cancelled
+
+                    if (!response.ok) {
+                        const err = await response.text();
+                        showToast(`❌ Browse failed: ${err}`, true);
+                        return;
+                    }
+
+                    const data = await response.json();
+                    const selectedPath = data.path;
+                    if (!selectedPath) return;
+
+                    // Set the filename_prefix widget to the selected path
+                    const pw = getWidget("filename_prefix");
+                    if (pw) pw.value = selectedPath;
+
+                    showToast(`📁 Path set: ${selectedPath}`);
+
+                    // Offer to add to favorites
+                    showAddToFavoritesPrompt(selectedPath);
+
+                } catch (e) {
+                    showToast(`❌ Error: ${e.message}`, true);
+                }
+            });
+            browseBtn.serialize = false;
+
+            // ── Add to Favorites prompt ────────────────────────────────────
+            function showAddToFavoritesPrompt(path) {
+                const existing = document.getElementById("save_it_addfav_prompt");
+                if (existing) existing.remove();
+
+                const prompt = document.createElement("div");
+                prompt.id = "save_it_addfav_prompt";
+                prompt.style.cssText = `
+                    position: fixed;
+                    bottom: 80px;
+                    right: 30px;
+                    background: #1e2a2a;
+                    border: 1px solid #2a9d8f;
+                    border-radius: 8px;
+                    padding: 14px 18px;
+                    font-size: 13px;
+                    font-family: sans-serif;
+                    color: white;
+                    z-index: 99999;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+                    max-width: 420px;
+                    word-break: break-all;
+                `;
+                prompt.innerHTML = `
+                    <div style="margin-bottom:10px;">
+                        <span style="color:#2a9d8f;font-weight:bold;">⭐ Add to Favorites?</span><br>
+                        <span style="color:#ccc;font-size:12px;">${path}</span>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button id="save_it_addfav_yes"
+                            style="flex:1;padding:6px;background:#2a9d8f;color:white;border:none;
+                                   border-radius:6px;cursor:pointer;font-size:13px;">
+                            ⭐ Add to Favorites
+                        </button>
+                        <button id="save_it_addfav_no"
+                            style="padding:6px 12px;background:#555;color:white;border:none;
+                                   border-radius:6px;cursor:pointer;font-size:13px;">
+                            Not now
+                        </button>
+                    </div>
+                `;
+                document.body.appendChild(prompt);
+
+                const dismiss = () => prompt.remove();
+
+                prompt.querySelector("#save_it_addfav_yes").addEventListener("click", async () => {
+                    const favs = await loadFavorites();
+                    if (!favs.includes(path)) {
+                        favs.push(path);
+                        await saveFavorites(favs);
+                        showToast(`⭐ Added to favorites: ${path}`);
+                    } else {
+                        showToast(`Already in favorites.`);
+                    }
+                    dismiss();
+                });
+
+                prompt.querySelector("#save_it_addfav_no").addEventListener("click", dismiss);
+
+                // Auto-dismiss after 8 seconds
+                setTimeout(dismiss, 15000);
+            }
+
             // ── Save Image button ──────────────────────────────────────────
             const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
                 if (isAutoSave()) return;

@@ -169,6 +169,126 @@ async def open_folder_handler(request):
         return web.Response(status=500, text=str(e))
 
 
+@PromptServer.instance.routes.post("/save_it/browse_folder")
+async def browse_folder_handler(request):
+    """Open a native Windows folder-picker dialog using ctypes (no tkinter needed)."""
+    try:
+        import asyncio
+        import concurrent.futures
+
+        def _pick_folder():
+            try:
+                import ctypes
+                import ctypes.wintypes
+
+                # Use the modern IFileDialog (Vista+) via CoCreateInstance
+                # CLSID_FileOpenDialog / IID_IFileDialog
+                CLSID_FileOpenDialog = "{DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7}"
+                IID_IFileOpenDialog  = "{D57C7288-D4AD-4768-BE02-9D969532D960}"
+                FOS_PICKFOLDERS      = 0x00000020
+                FOS_FORCEFILESYSTEM  = 0x00000040
+                SIGDN_FILESYSPATH    = ctypes.c_int(0x80058000)
+
+                ole32   = ctypes.windll.ole32
+                shell32 = ctypes.windll.shell32
+
+                ole32.CoInitialize(None)
+
+                # Build GUID structs
+                def parse_guid(guid_str):
+                    import uuid
+                    b = uuid.UUID(guid_str).bytes_le
+                    class GUID(ctypes.Structure):
+                        _fields_ = [("Data", ctypes.c_byte * 16)]
+                    g = GUID()
+                    ctypes.memmove(g.Data, b, 16)
+                    return g
+
+                clsid = parse_guid(CLSID_FileOpenDialog)
+                iid   = parse_guid(IID_IFileOpenDialog)
+
+                pfd = ctypes.c_void_p()
+                hr = ole32.CoCreateInstance(
+                    ctypes.byref(clsid),
+                    None,
+                    1,  # CLSCTX_INPROC_SERVER
+                    ctypes.byref(iid),
+                    ctypes.byref(pfd)
+                )
+                if hr != 0:
+                    return f"__error__:CoCreateInstance failed: {hr:#010x}"
+
+                # IFileOpenDialog vtable offsets (IUnknown=0-2, IModalWindow=3, IFileDialog=4-20, IFileOpenDialog=21+)
+                vtable = ctypes.cast(pfd, ctypes.POINTER(ctypes.c_void_p))
+                vtable_ptr = ctypes.cast(vtable[0], ctypes.POINTER(ctypes.c_void_p))
+
+                # SetOptions (index 9 in IFileDialog vtable = 3 IUnknown + 1 IModalWindow + 5 = offset 9)
+                SetOptions = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_uint32)(vtable_ptr[9])
+                SetOptions(pfd, FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)
+
+                # SetTitle (index 17)
+                SetTitle = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_wchar_p)(vtable_ptr[17])
+                SetTitle(pfd, "Select Save Folder")
+
+                # Get the current foreground window to use as parent (forces dialog on top)
+                user32 = ctypes.windll.user32
+                hwnd = user32.GetForegroundWindow()
+
+                # Show (index 3)
+                Show = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_void_p)(vtable_ptr[3])
+                hr_show = Show(pfd, hwnd)
+
+                folder = ""
+                if hr_show == 0:  # S_OK — user picked a folder
+                    # GetResult (index 20)
+                    GetResult = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(vtable_ptr[20])
+                    psi = ctypes.c_void_p()
+                    if GetResult(pfd, ctypes.byref(psi)) == 0:
+                        # IShellItem::GetDisplayName — vtable index 5
+                        si_vtable = ctypes.cast(psi, ctypes.POINTER(ctypes.c_void_p))
+                        si_vtable_ptr = ctypes.cast(si_vtable[0], ctypes.POINTER(ctypes.c_void_p))
+                        GetDisplayName = ctypes.WINFUNCTYPE(
+                            ctypes.HRESULT,
+                            ctypes.c_void_p,
+                            ctypes.c_int,
+                            ctypes.POINTER(ctypes.c_wchar_p)
+                        )(si_vtable_ptr[5])
+                        buf = ctypes.c_wchar_p()
+                        if GetDisplayName(psi, SIGDN_FILESYSPATH, ctypes.byref(buf)) == 0:
+                            folder = buf.value or ""
+                        # Release IShellItem
+                        Release_si = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(si_vtable_ptr[2])
+                        Release_si(psi)
+
+                # Release IFileOpenDialog
+                Release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable_ptr[2])
+                Release(pfd)
+                ole32.CoUninitialize()
+
+                return folder
+
+            except Exception as e:
+                return f"__error__:{e}"
+
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            folder = await loop.run_in_executor(pool, _pick_folder)
+
+        if isinstance(folder, str) and folder.startswith("__error__:"):
+            return web.Response(status=500, text=folder[len("__error__:"):])
+        if not folder:
+            return web.Response(status=204, text="")  # user cancelled
+
+        folder = folder.replace("\\", "/")
+        if not folder.endswith("/"):
+            folder += "/"
+
+        return web.json_response({"path": folder})
+
+    except Exception as e:
+        return web.Response(status=500, text=str(e))
+
+
 @PromptServer.instance.routes.get("/save_it/favorites")
 async def get_favorites(request):
     return web.json_response(load_favorites())

@@ -4,6 +4,11 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/Save_It.jpg)
 
+## Update 1.1.0
+
+- Click on "Browse & Set Save Path" button and select a location to save the generated image. When location is selected; a toast message will appear at the bottom right corner for 15 seconds to give you a chance to add the selected location to favorites. 
+- Favorite locations are saved in the custom node's folder with the name: "favorite_folders.json" you can also add locations to that file, restart ComfyUI, and the locations added in the file will appear in the favorite drop-down list in the node. 
+
 ## Installation
 
 Install directly from ComfyUI Manager by searching for Save_It.
