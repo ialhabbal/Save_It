@@ -1,70 +1,80 @@
-# Save_It 
+# Save_It
 ## ComfyUI Custom Node
-Save_It is a ComfyUI custom node that gives you full control over when and how your generated images are saved. Unlike the default save node, Save_It displays your image first and lets you decide what to do with it — save it manually, save it automatically, choose the format, organize it into folders, and more.
+
+Save_It is a ComfyUI custom node that gives you full control over when and how your generated images are saved. Unlike the default save node, Save_It previews the image first and lets you decide what to do with it — save it manually or automatically, choose the file format, control quality, organize images into subfolders, browse for a save location using a native folder picker, manage a persistent list of favorite save paths, and review a history of everything you have saved.
 
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/save_it.png)
 
 ## Update 1.2.0
 
-- You can now resize the the Favorite_Folders dialogue box.
-- Added a search feature inside Favorite_Folders dialogue box.
+- The Favorite Folders dialogue box can now be resized by dragging its bottom-right corner.
+- A search field has been added inside the Favorite Folders dialogue to filter your saved paths in real time.
 
 ## Update 1.1.0
 
-- Click on "Browse & Set Save Path" button and select a location to save the generated image. When location is selected; a toast message will appear at the bottom right corner for 15 seconds to give you a chance to add the selected location to favorites. 
-- Favorite locations are saved in the custom node's folder with the name: "favorite_folders.json" you can also add locations to that file, restart ComfyUI, and the locations added in the file will appear in the favorite drop-down list in the node. 
+- Click "Browse & Set Save Path" to open a native Windows folder picker and set the save location directly from your file system. After selecting a folder, a prompt appears for 15 seconds offering to add that location to your favorites with a single click.
+- Favorite locations are stored permanently in a file named `favorite_folders.json` inside the custom node's folder. You can also edit this file manually, restart ComfyUI, and any paths you added will appear in the Favorite Folders panel.
 
 ## Installation
 
 Install directly from ComfyUI Manager by searching for Save_It.
 
-Alternatively,
+Alternatively:
 
 1. Go to your ComfyUI `custom_nodes` folder
-2. CMD
-3. Git Clone https://github.com/ialhabbal/Save_It.git
+2. Open a terminal or command prompt there
+3. Run: `git clone https://github.com/ialhabbal/Save_It.git`
 4. Restart ComfyUI
-   or:
+
+Or manually:
+
 1. Go to your ComfyUI `custom_nodes` folder
 2. Create a folder named `Save_It`
 3. Copy all files into it
 4. Restart ComfyUI
 
-## Usage
+## To Update:
 
-### Node Inputs
+- Update through ComfyUI Manager, or
+- Go the node's folder, run a cmd, then: Git Pull
+
+## Node Inputs
 
 **images:** Connect this to the output of any node that produces an image, such as a VAE Decode node. This is the image that will be previewed and saved.
 
-**AutoSave (ON/OFF toggle):** When set to OFF (the default), the node will display the generated image but will not save it until you click the Save Image button. When set to ON, the node will automatically save every image immediately after it is generated, without you needing to click anything. When AutoSave is ON, the Save Image button is dimmed and cannot be clicked.
+**AutoSave (ON/OFF toggle):** When set to OFF (the default), the node displays the generated image as a preview but does not save it until you click the Save Image button. When set to ON, the node automatically saves every newly generated image immediately after it is produced, without requiring any manual action. The Save Image button is dimmed and disabled while AutoSave is ON. AutoSave is designed to save each unique generation exactly once — if the same image is re-displayed without a new generation occurring, it will not be saved again.
 
-**filename_prefix:** This is a text field where you type the name and location for your saved image. It works in the following ways:
+**filename_prefix:** A text field where you type the name and destination path for your saved image. It works in the following ways:
 
-- Type just a name like MyImage and the image will be saved as MyImage_00001.png in your main ComfyUI output folder.
-- Type a folder and name like Portraits/MyImage and the image will be saved as MyImage_00001.png inside a Portraits subfolder in your output folder. The - subfolder will be created automatically if it does not exist.
-- Type a folder path ending with a forward slash and underscore like Portraits/_ and the image will be saved with just a number like 00001.png inside the Portraits subfolder.
-- You can also use full absolute paths like F:\MyImages\Portraits/ to save images to any folder on your computer.
+- Type just a name like `MyImage` and the file will be saved as `MyImage_00001.png` in your main ComfyUI output folder.
+- Type a relative path like `Portraits/MyImage` and the file will be saved as `MyImage_00001.png` inside a `Portraits` subfolder within your output folder. The subfolder is created automatically if it does not exist.
+- Type a path ending with a forward slash or an underscore like `Portraits/_` and the file will be saved with only a number as its name, such as `00001.png`, inside the specified subfolder.
+- Type an absolute path like `F:/MyImages/Portraits/` to save images to any folder on your system, completely outside the ComfyUI output directory. Both Windows-style (`F:\MyImages\`) and Unix-style (`/home/user/images/`) paths are supported.
 
-**format:** A dropdown menu to choose the file format for saved images. The available options are PNG, JPEG, and WebP. PNG is the default and is recommended for the highest quality with no compression loss. JPEG and WebP produce smaller file sizes but with some quality loss controlled by the Quality slider.
+**format:** A dropdown menu for choosing the file format. The available options are PNG, JPEG, and WebP. PNG is the default and produces lossless output with no quality degradation. JPEG and WebP produce smaller files but apply lossy compression, controlled by the Quality slider. When saving as JPEG, any transparency in the image is automatically converted to an RGB layer before saving.
 
-**quality:** A slider that goes from 1 to 100. This only applies when the format is set to JPEG or WebP. Higher values produce better looking images with larger file sizes. Lower values produce smaller files with more visible compression. This setting has no effect when saving as PNG.
+**quality:** A slider ranging from 1 to 100. This setting only applies when the format is set to JPEG or WebP. Higher values produce better-looking images at larger file sizes. Lower values produce smaller files with more noticeable compression. This setting has no effect on PNG files.
 
-**Timestamp (ON/OFF toggle):** When set to OFF (the default), saved images are numbered sequentially like 00001.png, 00002.png, and so on. The counter is remembered even after you restart ComfyUI, so your numbering never resets. When set to ON, the date and time are added to the filename instead, for example MyImage_2026-03-23_14-30-00.png. This is useful when you want to know exactly when each image was generated.
+**Timestamp (ON/OFF toggle):** When set to OFF (the default), saved images are numbered sequentially — for example, `MyImage_00001.png`, `MyImage_00002.png`, and so on. The counter is stored in a hidden file called `.save_it_counter` inside the save folder and persists across ComfyUI restarts, so the numbering never resets unintentionally. When set to ON, a date and time stamp is appended to the filename instead — for example, `MyImage_2026-03-23_14-30-00.png`. If two images are saved within the same second, a numeric suffix is appended automatically to avoid collisions.
 
-### Buttons
+## Buttons
 
-**Save Image:** Click this button to save the currently displayed image to the location specified in the filename_prefix field. The image will not be saved until you click this button. This button is only available when AutoSave is OFF.
+**Browse & Set Save Path:** Opens a native Windows folder picker dialog. Selecting a folder sets the `filename_prefix` field to the chosen path automatically. After selecting, a prompt appears in the bottom-right corner for 15 seconds offering to add the selected path to your Favorite Folders.
 
-**Open Output Folder:** Click this button to open the folder where your images are being saved in your file explorer (Windows Explorer on Windows, Finder on Mac). It reads the current filename_prefix to determine which folder to open. If the folder does not exist yet, it will be created automatically before opening.
+**Save Image:** Saves the currently previewed image to the location specified in `filename_prefix`, using the selected format and quality settings. This button is only active when AutoSave is OFF. If no image has been generated yet, a notification will inform you to run the workflow first.
 
-**Save History:** Click this button to open a panel showing the last 50 images you saved using Save_It. Each entry shows the filename, the full path it was saved to, and the date and time it was saved. There is also a Clear button inside the panel to erase the history if you want to start fresh.
+**Open Output Folder:** Opens the folder corresponding to the current `filename_prefix` value in your system's file explorer (Windows Explorer on Windows, Finder on macOS, or the default file manager on Linux). If the folder does not yet exist, it is created automatically before opening.
 
-**Favorite Folders:** Click this button to open a panel where you can manage a list of your favorite save locations. This is useful if you regularly save images to different folders and want to switch between them quickly. To add a folder, type its path into the input field and click Add — the trailing slash will be added automatically. To use a favorite folder, simply click on it in the list and it will instantly be applied to the filename_prefix field. To remove a favorite, click the X button next to it.
+**Save History:** Opens a panel showing the last 50 images saved using Save_It during the current browser session. Each entry displays the filename, the full path it was saved to, and the date and time it was saved. A Clear button inside the panel erases the entire history. History is stored in the browser's local storage and will persist between sessions unless you clear your browser data.
 
-### Tips
+**Favorite Folders:** Opens a panel for managing a list of frequently used save locations. To add a folder, type its path into the input field and click Add — a trailing slash is appended automatically if not already present. To apply a favorite, click on it in the list and it will immediately be set as the current `filename_prefix`. To remove a favorite, click the X button next to it. The panel supports real-time search to filter your list by typing part of a path. The panel can also be resized by dragging the handle in its bottom-right corner.
 
-- The sequential counter (00001, 00002, etc.) is stored in a hidden file called .save_it_counter inside your save folder. Do not delete this file if you want your numbering to continue from where it left off.
-- If you are saving as JPEG or WebP and want the best possible quality, set the quality slider to 95 or higher.
-- AutoSave is great for long unattended runs where you want every generation saved automatically. Manual save is better when you are reviewing results and only want to keep the best ones.
-- Favorite Folders are saved permanently and will still be there the next time you start ComfyUI.
-- The Save History is stored in your browser and will persist between sessions, but will be cleared if you clear your browser data.
+## Notes
+
+- The sequential counter is stored in a hidden file called `.save_it_counter` inside your save folder. Do not delete this file if you want numbering to continue from where it left off.
+- When saving as JPEG or WebP and quality is a priority, set the quality slider to 95 or higher.
+- AutoSave is well-suited for long unattended runs where every generation should be kept. Manual save is preferable when reviewing results and only keeping selected images.
+- Favorite Folders are saved to `favorite_folders.json` on disk and persist permanently across ComfyUI restarts. You can edit this file directly to add or remove entries in bulk.
+- Save History is stored in browser local storage. It will persist across sessions but will be lost if you clear your browser's stored data.
+- The Browse & Set Save Path button uses the Windows native IFileOpenDialog API via ctypes and does not require tkinter. It is currently only functional on Windows.
+- Workflow metadata (prompt and extra PNG info) is embedded in files saved via AutoSave when the format is PNG, preserving the full generation parameters alongside the image.
