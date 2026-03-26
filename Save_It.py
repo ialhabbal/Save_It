@@ -18,15 +18,39 @@ from PIL.PngImagePlugin import PngInfo
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def resolve_output_dir(filename_prefix, base_dir):
-    """Parse filename_prefix into (out_dir, base_name)."""
-    prefix_parts = filename_prefix.replace("\\", "/").split("/")
-    if len(prefix_parts) > 1:
-        out_subfolder = "/".join(prefix_parts[:-1])
-        base_name = prefix_parts[-1].strip("_").strip()
+    """Parse filename_prefix into (out_dir, base_name, out_subfolder).
+
+    Rules
+    -----
+    - If filename_prefix is an absolute path (Windows "X:\\..." or Unix "/...")
+      the ENTIRE value is used as the output directory and base_name is "".
+      This is true whether or not the path ends with a slash.
+
+    - Otherwise treat as a relative "subfolder/basename" joined onto base_dir,
+      preserving the original behaviour for plain names like "ComfyUI" or
+      relative paths like "MyFolder/MyImage".
+    """
+    # Normalise separators so the rest of the logic is separator-agnostic
+    normalised = filename_prefix.replace("\\", "/")
+
+    # Detect Windows absolute path ("X:/...") or Unix absolute path ("/...")
+    is_absolute = normalised.startswith("/") or (len(normalised) >= 2 and normalised[1] == ":")
+
+    if is_absolute:
+        # Strip trailing slash so os.path.normpath gives a clean directory path
+        out_dir = os.path.normpath(normalised.rstrip("/"))
+        out_subfolder = out_dir
+        base_name = ""
     else:
-        out_subfolder = ""
-        base_name = prefix_parts[0].strip("_").strip()
-    out_dir = os.path.join(base_dir, out_subfolder) if out_subfolder else base_dir
+        parts = normalised.rstrip("/").split("/")
+        if len(parts) > 1:
+            out_subfolder = "/".join(parts[:-1])
+            base_name = parts[-1].strip("_").strip()
+        else:
+            out_subfolder = ""
+            base_name = parts[0].strip("_").strip()
+        out_dir = os.path.join(base_dir, out_subfolder) if out_subfolder else base_dir
+
     os.makedirs(out_dir, exist_ok=True)
     return out_dir, base_name, out_subfolder
 
