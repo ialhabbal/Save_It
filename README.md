@@ -4,6 +4,11 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/save_it.png)
 
+## Update 1.2.0
+
+- You can now resize the the Favorite_Folders dialogue box.
+- Added a search feature inside Favorite_Folders dialogue box.
+
 ## Update 1.1.0
 
 - Click on "Browse & Set Save Path" button and select a location to save the generated image. When location is selected; a toast message will appear at the bottom right corner for 15 seconds to give you a chance to add the selected location to favorites. 

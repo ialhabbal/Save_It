@@ -114,20 +114,41 @@ app.registerExtension({
                     border-radius: 10px;
                     padding: 20px;
                     width: 460px;
-                    max-height: 80vh;
-                    overflow-y: auto;
+                    min-width: 320px;
+                    max-width: 95vw;
+                    min-height: 260px;
+                    max-height: 90vh;
+                    display: flex;
+                    flex-direction: column;
                     color: white;
                     font-family: sans-serif;
+                    position: relative;
+                    box-sizing: border-box;
+                    overflow: hidden;
                 `;
 
                 dialog.innerHTML = `
-                    <h3 style="margin:0 0 12px;color:#2a9d8f;">⭐ Favorite Folders</h3>
-                    <p style="font-size:12px;color:#aaa;margin:0 0 10px;">
+                    <h3 style="margin:0 0 10px;color:#2a9d8f;flex-shrink:0;">⭐ Favorite Folders</h3>
+                    <p style="font-size:12px;color:#aaa;margin:0 0 10px;flex-shrink:0;">
                         Add folder paths to quickly switch your save location.<br>
                         Format: <code style="color:#2a9d8f;">SubFolder/OptionalName</code> or just <code style="color:#2a9d8f;">SubFolder/_</code>
                     </p>
-                    <div id="save_it_fav_list" style="margin-bottom:12px;"></div>
-                    <div style="display:flex;gap:8px;margin-bottom:14px;">
+
+                    <div style="position:relative;margin-bottom:10px;flex-shrink:0;">
+                        <input id="save_it_fav_search" type="text" placeholder="🔍 Search folders…"
+                            style="width:100%;box-sizing:border-box;padding:7px 32px 7px 10px;
+                                   border-radius:6px;border:1px solid #3a7d74;
+                                   background:#0d1f1f;color:white;font-size:13px;outline:none;" />
+                        <span id="save_it_fav_search_clear"
+                            style="position:absolute;right:9px;top:50%;transform:translateY(-50%);
+                                   cursor:pointer;color:#777;font-size:14px;display:none;
+                                   line-height:1;user-select:none;" title="Clear search">✕</span>
+                    </div>
+
+                    <div id="save_it_fav_list"
+                        style="flex:1;overflow-y:auto;margin-bottom:12px;min-height:60px;"></div>
+
+                    <div style="display:flex;gap:8px;margin-bottom:14px;flex-shrink:0;">
                         <input id="save_it_fav_input" type="text" placeholder="e.g. Projects/Portraits/_"
                             style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid #2a9d8f;
                                    background:#0d1f1f;color:white;font-size:13px;outline:none;" />
@@ -135,19 +156,118 @@ app.registerExtension({
                             style="padding:7px 14px;background:#2a9d8f;color:white;border:none;
                                    border-radius:6px;cursor:pointer;font-size:13px;">Add</button>
                     </div>
-                    <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <div style="display:flex;justify-content:flex-end;gap:8px;flex-shrink:0;">
                         <button id="save_it_fav_close"
                             style="padding:5px 12px;background:#555;color:white;border:none;
                                    border-radius:6px;cursor:pointer;">Close</button>
+                    </div>
+
+                    <!-- Resize handle -->
+                    <div id="save_it_fav_resize"
+                        style="position:absolute;bottom:0;right:0;width:18px;height:18px;
+                               cursor:se-resize;display:flex;align-items:flex-end;
+                               justify-content:flex-end;padding:3px;box-sizing:border-box;
+                               opacity:0.5;" title="Drag to resize">
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="#2a9d8f">
+                            <path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="#2a9d8f" stroke-width="1.5"
+                                stroke-linecap="round"/>
+                        </svg>
                     </div>
                 `;
 
                 overlay.appendChild(dialog);
                 document.body.appendChild(overlay);
 
-                const listEl = dialog.querySelector("#save_it_fav_list");
-                const input = dialog.querySelector("#save_it_fav_input");
+                const listEl    = dialog.querySelector("#save_it_fav_list");
+                const input     = dialog.querySelector("#save_it_fav_input");
+                const searchEl  = dialog.querySelector("#save_it_fav_search");
+                const clearBtn  = dialog.querySelector("#save_it_fav_search_clear");
+                const resizeHandle = dialog.querySelector("#save_it_fav_resize");
 
+                // ── Resize logic ───────────────────────────────────────────
+                let isResizing = false, startX, startY, startW, startH;
+
+                resizeHandle.addEventListener("mousedown", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    isResizing = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startW = dialog.offsetWidth;
+                    startH = dialog.offsetHeight;
+                    document.body.style.userSelect = "none";
+                });
+
+                document.addEventListener("mousemove", (e) => {
+                    if (!isResizing) return;
+                    const newW = Math.max(320, startW + (e.clientX - startX));
+                    const newH = Math.max(260, startH + (e.clientY - startY));
+                    const maxW = window.innerWidth * 0.95;
+                    const maxH = window.innerHeight * 0.90;
+                    dialog.style.width  = Math.min(newW, maxW) + "px";
+                    dialog.style.height = Math.min(newH, maxH) + "px";
+                });
+
+                document.addEventListener("mouseup", () => {
+                    if (isResizing) {
+                        isResizing = false;
+                        document.body.style.userSelect = "";
+                    }
+                });
+
+                // ── Search logic ───────────────────────────────────────────
+                let currentQuery = "";
+
+                searchEl.addEventListener("input", () => {
+                    currentQuery = searchEl.value.trim().toLowerCase();
+                    clearBtn.style.display = currentQuery ? "block" : "none";
+                    applySearch();
+                });
+
+                clearBtn.addEventListener("click", () => {
+                    searchEl.value = "";
+                    currentQuery = "";
+                    clearBtn.style.display = "none";
+                    applySearch();
+                    searchEl.focus();
+                });
+
+                function applySearch() {
+                    const rows = listEl.querySelectorAll(".fav-row");
+                    let firstMatch = null;
+
+                    rows.forEach((row) => {
+                        const favText = row.dataset.fav.toLowerCase();
+                        const spanEl  = row.querySelector(".fav-label");
+
+                        if (!currentQuery) {
+                            // Reset: show all, remove highlights
+                            row.style.display = "flex";
+                            spanEl.style.border = "1px solid #333";
+                            spanEl.style.background = "#0d1f1f";
+                            return;
+                        }
+
+                        const matches = favText.includes(currentQuery);
+                        row.style.display = matches ? "flex" : "none";
+
+                        if (matches) {
+                            spanEl.style.border = "1px solid #2a9d8f";
+                            spanEl.style.background = "#0d2e2a";
+                            if (!firstMatch) firstMatch = row;
+                        } else {
+                            spanEl.style.border = "1px solid #333";
+                            spanEl.style.background = "#0d1f1f";
+                        }
+                    });
+
+                    // Scroll first match into view
+                    if (firstMatch) {
+                        firstMatch.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                    }
+                }
+
+                // ── Render list ────────────────────────────────────────────
                 async function renderList() {
                     const favs = await loadFavorites();
                     listEl.innerHTML = "";
@@ -157,17 +277,21 @@ app.registerExtension({
                     }
                     favs.forEach((fav, i) => {
                         const row = document.createElement("div");
+                        row.className = "fav-row";
+                        row.dataset.fav = fav;
                         row.style.cssText = `display:flex;align-items:center;gap:8px;margin-bottom:6px;`;
                         row.innerHTML = `
-                            <span style="flex:1;font-size:13px;background:#0d1f1f;
-                                padding:6px 10px;border-radius:6px;border:1px solid #333;
-                                cursor:pointer;color:#ccc;"
-                                title="Click to use this folder">📁 ${fav}</span>
+                            <span class="fav-label"
+                                style="flex:1;font-size:13px;background:#0d1f1f;
+                                    padding:6px 10px;border-radius:6px;border:1px solid #333;
+                                    cursor:pointer;color:#ccc;white-space:nowrap;
+                                    overflow:hidden;text-overflow:ellipsis;"
+                                title="${fav}">📁 ${fav}</span>
                             <button data-i="${i}" class="fav-del"
-                                style="padding:5px 10px;background:#c0392b;color:white;
+                                style="flex-shrink:0;padding:5px 10px;background:#c0392b;color:white;
                                 border:none;border-radius:6px;cursor:pointer;font-size:12px;">✕</button>
                         `;
-                        row.querySelector("span").addEventListener("click", () => {
+                        row.querySelector(".fav-label").addEventListener("click", () => {
                             const pw = getWidget("filename_prefix");
                             if (pw) pw.value = fav;
                             overlay.remove();
@@ -181,6 +305,9 @@ app.registerExtension({
                         });
                         listEl.appendChild(row);
                     });
+
+                    // Re-apply search filter after re-render
+                    if (currentQuery) applySearch();
                 }
 
                 renderList();
@@ -202,7 +329,9 @@ app.registerExtension({
                 });
 
                 dialog.querySelector("#save_it_fav_close").addEventListener("click", () => overlay.remove());
-                overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+                overlay.addEventListener("mousedown", (e) => {
+                    if (e.target === overlay && !isResizing) overlay.remove();
+                });
             }
 
             // ── Save History Dialog ────────────────────────────────────────
