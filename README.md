@@ -5,6 +5,10 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/save_it.png)
 
+## Update 1.2.1
+
+"Open Output Folder" Now opens in the foreground.
+
 ## Update 1.2.0
 
 - The Favorite Folders dialogue box can now be resized by dragging its bottom-right corner.
