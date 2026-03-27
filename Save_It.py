@@ -6,6 +6,8 @@ import shutil
 import string
 import subprocess
 import sys
+import ctypes
+import time
 import numpy as np
 from aiohttp import web
 from server import PromptServer
@@ -181,7 +183,97 @@ async def open_folder_handler(request):
         out_dir, _, _ = resolve_output_dir(filename_prefix, out_base_dir)
 
         if sys.platform == "win32":
-            os.startfile(out_dir)
+            try:
+                # Launch Explorer for the folder. Using the explorer.exe command
+                # tends to open a new window for the path specified.
+                subprocess.Popen(["explorer", out_dir])
+            except Exception:
+                try:
+                    subprocess.Popen(f'start "" "{out_dir}"', shell=True)
+                except Exception:
+                    os.startfile(out_dir)
+
+            # Attempt to find the Explorer window and bring it to the foreground.
+            try:
+                user32 = ctypes.windll.user32
+
+                CALLBACK = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+                def _find_windows(match_lower):
+                    found_hwnds = []
+
+                    GetClassNameW = user32.GetClassNameW
+                    GetWindowTextW = user32.GetWindowTextW
+                    GetWindowTextLengthW = user32.GetWindowTextLengthW
+
+                    def _cb(hwnd, lParam):
+                        try:
+                            if not user32.IsWindowVisible(hwnd):
+                                return True
+                            # Check class name to focus on Explorer windows only
+                            cls_buf = ctypes.create_unicode_buffer(256)
+                            GetClassNameW(hwnd, cls_buf, 256)
+                            cls = cls_buf.value or ""
+                            if not (cls.lower().startswith("cabinetwclass") or cls.lower().startswith("explorerwindow") or cls.lower().startswith("explorerwclass")):
+                                return True
+
+                            length = GetWindowTextLengthW(hwnd)
+                            buf = ctypes.create_unicode_buffer(length + 1)
+                            GetWindowTextW(hwnd, buf, length + 1)
+                            title = buf.value or ""
+                            if match_lower in title.lower() or match_lower in cls.lower():
+                                found_hwnds.append(hwnd)
+                        except Exception:
+                            pass
+                        return True
+
+                    user32.EnumWindows(CALLBACK(_cb), 0)
+                    return found_hwnds
+
+                # Match against the folder name and full path to improve chances.
+                folder_name = os.path.basename(out_dir.rstrip("\/"))
+                full_path = out_dir.replace("\\", "/")
+
+                match_candidates = [folder_name.lower(), full_path.lower()]
+
+                hwnd_to_focus = None
+                for attempt in range(8):
+                    for match in match_candidates:
+                        if not match:
+                            continue
+                        hwnds = _find_windows(match)
+                        if hwnds:
+                            hwnd_to_focus = hwnds[0]
+                            break
+                    if hwnd_to_focus:
+                        break
+                    time.sleep(0.12)
+
+                if hwnd_to_focus:
+                    SW_RESTORE = 9
+                    # Try attaching thread input to allow setting foreground
+                    try:
+                        GetWindowThreadProcessId = user32.GetWindowThreadProcessId
+                        GetCurrentThreadId = ctypes.windll.kernel32.GetCurrentThreadId
+                        AttachThreadInput = user32.AttachThreadInput
+
+                        pid = ctypes.c_ulong()
+                        tid = GetWindowThreadProcessId(hwnd_to_focus, ctypes.byref(pid))
+                        cur_tid = GetCurrentThreadId()
+                        # Attach, set foreground, then detach
+                        AttachThreadInput(cur_tid, tid, True)
+                        user32.ShowWindow(hwnd_to_focus, SW_RESTORE)
+                        user32.SetForegroundWindow(hwnd_to_focus)
+                        user32.BringWindowToTop(hwnd_to_focus)
+                        AttachThreadInput(cur_tid, tid, False)
+                    except Exception:
+                        # Fallback without attaching
+                        user32.ShowWindow(hwnd_to_focus, SW_RESTORE)
+                        user32.SetForegroundWindow(hwnd_to_focus)
+                        user32.BringWindowToTop(hwnd_to_focus)
+            except Exception:
+                # Best-effort only; don't fail the request if foregrounding fails.
+                pass
         elif sys.platform == "darwin":
             subprocess.Popen(["open", out_dir])
         else:
