@@ -600,6 +600,11 @@ app.registerExtension({
                 autosaveWidget.callback = function(value) {
                     originalCallback?.call(this, value);
                     saveBtn.disabled = value;
+                    // When autosave is turned ON, mark the current image as already saved
+                    // to prevent re-saving old temp images from before autosave was enabled
+                    if (value && self.imgs && self.imgs.length > 0) {
+                        lastSavedSrc = self.imgs[0].src;
+                    }
                 };
                 saveBtn.disabled = autosaveWidget.value;
             }
@@ -620,7 +625,15 @@ app.registerExtension({
 						// Check it's actually a fresh temp image not a previously saved output
 						const url = new URL(img.src, window.location.origin);
 						const type = url.searchParams.get("type") || "";
+						const filename = url.searchParams.get("filename") || "";
+						
+						// Skip if already saved to output by Python autosave
+						// Only proceed if it's a temp file AND hasn't been saved yet
 						if (type !== "temp") return;
+						
+						// Additional check: skip if filename doesn't look like a temp preview file
+						const tempPrefix = "save_it_preview";
+						if (!filename.includes(tempPrefix)) return;
 
 						lastSavedSrc = img.src;
 						doSaveImgs([img]);

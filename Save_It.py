@@ -164,9 +164,22 @@ async def save_it_handler(request):
         _, ext = get_pil_format_and_ext(fmt)
         dst_path, new_filename = next_available_path(out_dir, base_name, use_timestamp, ext)
 
-        # Re-save with correct format/quality
+        # Open the source image
         img = Image.open(src_path)
-        save_pil_image(img, dst_path, fmt, quality)
+        
+        # Extract existing metadata from the source PNG file if it exists
+        metadata = None
+        if fmt.upper() == "PNG":
+            metadata = PngInfo()
+            # Copy all existing text chunks from source image if it's a PNG
+            if hasattr(img, 'info'):
+                for key, value in img.info.items():
+                    if isinstance(key, str) and isinstance(value, str):
+                        # Preserve workflow and prompt metadata
+                        metadata.add_text(key, value)
+        
+        # Re-save with correct format/quality and preserved metadata
+        save_pil_image(img, dst_path, fmt, quality, metadata=metadata)
 
         return web.Response(status=200, text=f"Saved to {dst_path}")
 
@@ -213,73 +226,56 @@ async def open_folder_handler(request):
                             # Check class name to focus on Explorer windows only
                             cls_buf = ctypes.create_unicode_buffer(256)
                             GetClassNameW(hwnd, cls_buf, 256)
-                            cls = cls_buf.value or ""
-                            if not (cls.lower().startswith("cabinetwclass") or cls.lower().startswith("explorerwindow") or cls.lower().startswith("explorerwclass")):
+                            cls_name = cls_buf.value
+                            if cls_name != "CabinetWClass":
                                 return True
 
-                            length = GetWindowTextLengthW(hwnd)
-                            buf = ctypes.create_unicode_buffer(length + 1)
-                            GetWindowTextW(hwnd, buf, length + 1)
-                            title = buf.value or ""
-                            if match_lower in title.lower() or match_lower in cls.lower():
+                            title_len = GetWindowTextLengthW(hwnd)
+                            if title_len == 0:
+                                return True
+                            title_buf = ctypes.create_unicode_buffer(title_len + 1)
+                            GetWindowTextW(hwnd, title_buf, title_len + 1)
+                            title = title_buf.value.lower()
+
+                            if match_lower in title:
                                 found_hwnds.append(hwnd)
                         except Exception:
                             pass
                         return True
 
-                    user32.EnumWindows(CALLBACK(_cb), 0)
+                    cb = CALLBACK(_cb)
+                    user32.EnumWindows(cb, 0)
                     return found_hwnds
 
-                # Match against the folder name and full path to improve chances.
-                folder_name = os.path.basename(out_dir.rstrip("\/"))
-                full_path = out_dir.replace("\\", "/")
+                # Wait a short time for the Explorer window to appear
+                time.sleep(0.3)
 
-                match_candidates = [folder_name.lower(), full_path.lower()]
+                # Try matching just the final folder name
+                folder_name = os.path.basename(out_dir).lower()
+                hwnds = _find_windows(folder_name)
 
-                hwnd_to_focus = None
-                for attempt in range(8):
-                    for match in match_candidates:
-                        if not match:
-                            continue
-                        hwnds = _find_windows(match)
-                        if hwnds:
-                            hwnd_to_focus = hwnds[0]
-                            break
-                    if hwnd_to_focus:
-                        break
-                    time.sleep(0.12)
+                # If no match, try matching the entire path
+                if not hwnds:
+                    hwnds = _find_windows(out_dir.lower())
 
-                if hwnd_to_focus:
+                # Bring the first matching window to the front
+                if hwnds:
+                    hwnd = hwnds[0]
                     SW_RESTORE = 9
-                    # Try attaching thread input to allow setting foreground
-                    try:
-                        GetWindowThreadProcessId = user32.GetWindowThreadProcessId
-                        GetCurrentThreadId = ctypes.windll.kernel32.GetCurrentThreadId
-                        AttachThreadInput = user32.AttachThreadInput
+                    user32.ShowWindow(hwnd, SW_RESTORE)
+                    user32.SetForegroundWindow(hwnd)
 
-                        pid = ctypes.c_ulong()
-                        tid = GetWindowThreadProcessId(hwnd_to_focus, ctypes.byref(pid))
-                        cur_tid = GetCurrentThreadId()
-                        # Attach, set foreground, then detach
-                        AttachThreadInput(cur_tid, tid, True)
-                        user32.ShowWindow(hwnd_to_focus, SW_RESTORE)
-                        user32.SetForegroundWindow(hwnd_to_focus)
-                        user32.BringWindowToTop(hwnd_to_focus)
-                        AttachThreadInput(cur_tid, tid, False)
-                    except Exception:
-                        # Fallback without attaching
-                        user32.ShowWindow(hwnd_to_focus, SW_RESTORE)
-                        user32.SetForegroundWindow(hwnd_to_focus)
-                        user32.BringWindowToTop(hwnd_to_focus)
             except Exception:
-                # Best-effort only; don't fail the request if foregrounding fails.
                 pass
+
         elif sys.platform == "darwin":
+            # macOS: use 'open'
             subprocess.Popen(["open", out_dir])
         else:
+            # Linux: use xdg-open
             subprocess.Popen(["xdg-open", out_dir])
 
-        return web.Response(status=200, text=f"Opened {out_dir}")
+        return web.Response(status=200, text="OK")
 
     except Exception as e:
         return web.Response(status=500, text=str(e))
@@ -287,108 +283,71 @@ async def open_folder_handler(request):
 
 @PromptServer.instance.routes.post("/save_it/browse_folder")
 async def browse_folder_handler(request):
-    """Open a native Windows folder-picker dialog using ctypes (no tkinter needed)."""
     try:
-        import asyncio
-        import concurrent.futures
+        folder = None
 
-        def _pick_folder():
+        if sys.platform == "win32":
+            import tkinter as tk
+            from tkinter import filedialog
+
+            def _pick():
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                try:
+                    selected = filedialog.askdirectory(title="Select Save Folder")
+                    return selected if selected else None
+                except Exception as e:
+                    return f"__error__:{str(e)}"
+                finally:
+                    root.destroy()
+
+            folder = _pick()
+
+        elif sys.platform == "darwin":
+            import subprocess
+
             try:
-                import ctypes
-                import ctypes.wintypes
-
-                # Use the modern IFileDialog (Vista+) via CoCreateInstance
-                # CLSID_FileOpenDialog / IID_IFileDialog
-                CLSID_FileOpenDialog = "{DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7}"
-                IID_IFileOpenDialog  = "{D57C7288-D4AD-4768-BE02-9D969532D960}"
-                FOS_PICKFOLDERS      = 0x00000020
-                FOS_FORCEFILESYSTEM  = 0x00000040
-                SIGDN_FILESYSPATH    = ctypes.c_int(0x80058000)
-
-                ole32   = ctypes.windll.ole32
-                shell32 = ctypes.windll.shell32
-
-                ole32.CoInitialize(None)
-
-                # Build GUID structs
-                def parse_guid(guid_str):
-                    import uuid
-                    b = uuid.UUID(guid_str).bytes_le
-                    class GUID(ctypes.Structure):
-                        _fields_ = [("Data", ctypes.c_byte * 16)]
-                    g = GUID()
-                    ctypes.memmove(g.Data, b, 16)
-                    return g
-
-                clsid = parse_guid(CLSID_FileOpenDialog)
-                iid   = parse_guid(IID_IFileOpenDialog)
-
-                pfd = ctypes.c_void_p()
-                hr = ole32.CoCreateInstance(
-                    ctypes.byref(clsid),
-                    None,
-                    1,  # CLSCTX_INPROC_SERVER
-                    ctypes.byref(iid),
-                    ctypes.byref(pfd)
+                result = subprocess.run(
+                    ["osascript", "-e", 'choose folder with prompt "Select Save Folder"'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
                 )
-                if hr != 0:
-                    return f"__error__:CoCreateInstance failed: {hr:#010x}"
-
-                # IFileOpenDialog vtable offsets (IUnknown=0-2, IModalWindow=3, IFileDialog=4-20, IFileOpenDialog=21+)
-                vtable = ctypes.cast(pfd, ctypes.POINTER(ctypes.c_void_p))
-                vtable_ptr = ctypes.cast(vtable[0], ctypes.POINTER(ctypes.c_void_p))
-
-                # SetOptions (index 9 in IFileDialog vtable = 3 IUnknown + 1 IModalWindow + 5 = offset 9)
-                SetOptions = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_uint32)(vtable_ptr[9])
-                SetOptions(pfd, FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM)
-
-                # SetTitle (index 17)
-                SetTitle = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_wchar_p)(vtable_ptr[17])
-                SetTitle(pfd, "Select Save Folder")
-
-                # Get the current foreground window to use as parent (forces dialog on top)
-                user32 = ctypes.windll.user32
-                hwnd = user32.GetForegroundWindow()
-
-                # Show (index 3)
-                Show = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.c_void_p)(vtable_ptr[3])
-                hr_show = Show(pfd, hwnd)
-
-                folder = ""
-                if hr_show == 0:  # S_OK — user picked a folder
-                    # GetResult (index 20)
-                    GetResult = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(vtable_ptr[20])
-                    psi = ctypes.c_void_p()
-                    if GetResult(pfd, ctypes.byref(psi)) == 0:
-                        # IShellItem::GetDisplayName — vtable index 5
-                        si_vtable = ctypes.cast(psi, ctypes.POINTER(ctypes.c_void_p))
-                        si_vtable_ptr = ctypes.cast(si_vtable[0], ctypes.POINTER(ctypes.c_void_p))
-                        GetDisplayName = ctypes.WINFUNCTYPE(
-                            ctypes.HRESULT,
-                            ctypes.c_void_p,
-                            ctypes.c_int,
-                            ctypes.POINTER(ctypes.c_wchar_p)
-                        )(si_vtable_ptr[5])
-                        buf = ctypes.c_wchar_p()
-                        if GetDisplayName(psi, SIGDN_FILESYSPATH, ctypes.byref(buf)) == 0:
-                            folder = buf.value or ""
-                        # Release IShellItem
-                        Release_si = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(si_vtable_ptr[2])
-                        Release_si(psi)
-
-                # Release IFileOpenDialog
-                Release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable_ptr[2])
-                Release(pfd)
-                ole32.CoUninitialize()
-
-                return folder
-
+                if result.returncode == 0:
+                    # AppleScript returns "alias Macintosh HD:path:to:folder"
+                    output = result.stdout.strip()
+                    if output.startswith("alias "):
+                        output = output[6:]  # strip "alias "
+                    # Convert colon-separated path to slash-separated
+                    parts = output.split(":")
+                    if len(parts) > 1:
+                        folder = "/" + "/".join(parts[1:])
+                    else:
+                        folder = None
+                else:
+                    folder = None
             except Exception as e:
-                return f"__error__:{e}"
+                folder = f"__error__:{str(e)}"
 
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            folder = await loop.run_in_executor(pool, _pick_folder)
+        else:
+            # Linux: attempt tkinter
+            import tkinter as tk
+            from tkinter import filedialog
+
+            def _pick_linux():
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                try:
+                    selected = filedialog.askdirectory(title="Select Save Folder")
+                    return selected if selected else None
+                except Exception as e:
+                    return f"__error__:{str(e)}"
+                finally:
+                    root.destroy()
+
+            folder = _pick_linux()
 
         if isinstance(folder, str) and folder.startswith("__error__:"):
             return web.Response(status=500, text=folder[len("__error__:"):])
@@ -602,3 +561,12 @@ class Save_It:
             )
 
             return {"ui": {"images": results}}
+
+
+NODE_CLASS_MAPPINGS = {
+    "Save_It": Save_It
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "Save_It": "Save It"
+}
