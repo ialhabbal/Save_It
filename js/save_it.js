@@ -475,12 +475,44 @@ app.registerExtension({
                     }
 
                     const data = await response.json();
+                    if (!data || typeof data !== 'object') {
+                        showToast("❌ Invalid response from server", true);
+                        return;
+                    }
                     const selectedPath = data.path;
                     if (!selectedPath) return;
 
                     // Set the filename_prefix widget to the selected path
                     const pw = getWidget("filename_prefix");
-                    if (pw) pw.value = selectedPath;
+                    if (pw) {
+                        try {
+                            pw.value = selectedPath;
+                            // Trigger callback if it exists to update the node
+                            if (pw.callback && typeof pw.callback === 'function') {
+                                pw.callback(selectedPath);
+                            }
+                        } catch (callbackError) {
+                            console.warn("Widget callback error:", callbackError);
+                        }
+                        
+                        // Force the node to be marked as modified
+                        try {
+                            if (self.onWidgetChanged && typeof self.onWidgetChanged === 'function') {
+                                self.onWidgetChanged("filename_prefix", selectedPath);
+                            }
+                        } catch (widgetError) {
+                            console.warn("onWidgetChanged error:", widgetError);
+                        }
+                        
+                        // Mark the graph as dirty so changes are saved
+                        try {
+                            if (app.graph && typeof app.graph.setDirtyCanvas === 'function') {
+                                app.graph.setDirtyCanvas(true, true);
+                            }
+                        } catch (graphError) {
+                            console.warn("setDirtyCanvas error:", graphError);
+                        }
+                    }
 
                     showToast(`📁 Path set: ${selectedPath}`);
 

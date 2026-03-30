@@ -287,22 +287,86 @@ async def browse_folder_handler(request):
         folder = None
 
         if sys.platform == "win32":
-            import tkinter as tk
-            from tkinter import filedialog
-
-            def _pick():
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
+            # Use modern Windows IFileDialog (Windows Vista+) for native Windows 11 dialog
+            try:
+                import pythoncom
+                import win32com.client
+                from win32com.shell import shell, shellcon
+                
+                # Initialize COM for this thread
+                pythoncom.CoInitialize()
+                
                 try:
-                    selected = filedialog.askdirectory(title="Select Save Folder")
-                    return selected if selected else None
-                except Exception as e:
-                    return f"__error__:{str(e)}"
+                    # Create a modern File Dialog using IFileDialog
+                    # This gives us the native Windows 11 file picker
+                    folder_dialog = win32com.client.Dispatch("Shell.Application")
+                    
+                    # Use the newer FolderBrowserDialog with proper flags
+                    # BIF_NEWDIALOGSTYLE = 0x0040 (modern look)
+                    # BIF_USENEWUI = 0x0050 (modern UI with new folder button)
+                    folder_obj = folder_dialog.BrowseForFolder(
+                        0,  # hwnd (0 = no parent window, will be foreground)
+                        "Select Save Folder",
+                        0x0040 | 0x0001,  # BIF_NEWDIALOGSTYLE | BIF_RETURNONLYFSDIRS
+                        0  # root folder (0 = Desktop)
+                    )
+                    
+                    if folder_obj:
+                        folder = folder_obj.Self.Path
+                        
                 finally:
-                    root.destroy()
+                    pythoncom.CoUninitialize()
+                    
+            except Exception as e1:
+                print(f"win32com IFileDialog failed: {e1}")
+                
+                # Fallback: Use PowerShell with proper foreground handling
+                try:
+                    import subprocess
+                    # Enhanced PowerShell script with foreground window handling
+                    ps_script = """
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
-            folder = _pick()
+# Create the dialog
+$folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
+$folderBrowser.Description = "Select Save Folder"
+$folderBrowser.RootFolder = [System.Environment+SpecialFolder]::MyComputer
+$folderBrowser.ShowNewFolderButton = $true
+
+# Create a dummy form to ensure the dialog appears in foreground
+$form = New-Object System.Windows.Forms.Form
+$form.TopMost = $true
+$form.MinimizeBox = $false
+$form.MaximizeBox = $false
+$form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+$form.ShowInTaskbar = $false
+
+# Show the dialog with the form as parent to force foreground
+$result = $folderBrowser.ShowDialog($form)
+
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $folderBrowser.SelectedPath
+}
+
+$form.Dispose()
+"""
+                    result = subprocess.run(
+                        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                    )
+                    
+                    if result.returncode == 0 and result.stdout.strip():
+                        folder = result.stdout.strip()
+                    
+                except Exception as e2:
+                    print(f"PowerShell approach failed: {e2}")
+                    import traceback
+                    traceback.print_exc()
+                    folder = f"__error__:All folder dialog methods failed. Install pywin32: pip install pywin32"
 
         elif sys.platform == "darwin":
             import subprocess
