@@ -18,6 +18,19 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 ### Compare on with toggling
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/compare_on_with_toggling2.png)
 
+### Browse & Set Save Path
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/browse_&_set_save_path.png)
+
+### Open Output Folder
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/open_output_folder.png)
+
+### Save History
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/save_history.png)
+
+### Favorite Folders
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders.png)
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders1.png)
+
 ## Update 1.3.0
 
 - Added image compare feature.
