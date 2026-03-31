@@ -19,7 +19,7 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/compare_on_with_toggling2.png)
 
 ### Browse & Set Save Path
-
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/browse_&_set_save_path.png)
 
 ### Open Output Folder
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/open_output_folder.png)
