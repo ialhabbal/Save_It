@@ -198,16 +198,16 @@ async def open_folder_handler(request):
 
         if sys.platform == "win32":
             try:
-                # Launch Explorer for the folder. Using the explorer.exe command
-                # tends to open a new window for the path specified.
                 subprocess.Popen(["explorer", out_dir])
+                time.sleep(0.2)
             except Exception:
                 try:
                     subprocess.Popen(f'start "" "{out_dir}"', shell=True)
+                    time.sleep(0.2)
                 except Exception:
                     os.startfile(out_dir)
+                    time.sleep(0.2)
 
-            # Attempt to find the Explorer window and bring it to the foreground.
             try:
                 user32 = ctypes.windll.user32
 
@@ -227,7 +227,11 @@ async def open_folder_handler(request):
                 user32.EnumWindows(enum_windows_proc, ctypes.cast(ctypes.pointer(ctypes.c_int(0)), ctypes.POINTER(ctypes.c_int)))
 
                 if results:
-                    user32.SetForegroundWindow(results[0])
+                    hwnd = results[0]
+                    user32.ShowWindow(hwnd, 9)
+                    user32.SetForegroundWindow(hwnd)
+                    user32.BringWindowToTop(hwnd)
+                    user32.SetActiveWindow(hwnd)
             except Exception:
                 pass
 
@@ -262,11 +266,25 @@ async def browse_folder_handler(request):
                         "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
                         "$d.Description='Select folder to save images';"
                         "$d.ShowNewFolderButton=$true;"
-                        "if($d.ShowDialog() -eq 'OK'){ Write-Output $d.SelectedPath }"
+                        "$form = New-Object System.Windows.Forms.Form;"
+                        "$form.TopMost = $true;"
+                        "$form.WindowState = 'Minimized';"
+                        "$form.ShowInTaskbar = $false;"
+                        "$form.Add_Shown({$form.Activate()});"
+                        "if($d.ShowDialog($form) -eq 'OK'){ Write-Output $d.SelectedPath };"
+                        "$form.Dispose();"
                     )
-                    # Use -NoProfile to speed startup
-                    proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], capture_output=True, text=True)
+                    proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
                     out = proc.stdout.strip()
+                    if out:
+                        try:
+                            user32 = ctypes.windll.user32
+                            hwnd = user32.GetForegroundWindow()
+                            if hwnd:
+                                user32.SetForegroundWindow(hwnd)
+                                user32.BringWindowToTop(hwnd)
+                        except Exception:
+                            pass
                     return out
                 except Exception:
                     return ""

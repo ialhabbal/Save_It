@@ -178,27 +178,35 @@ app.registerExtension({
                 overlay.appendChild(dialog);
                 document.body.appendChild(overlay);
 
-                // Resize functionality
+                // Resize functionality (prevent overlay from closing when dragging/resizing)
                 const resizeHandle = dialog.querySelector("#save_it_fav_resize");
                 let isResizing = false;
+                let suppressCloseDuringDrag = false; // prevents accidental overlay close after a drag
+                let startX, startY, startWidth, startHeight;
 
                 resizeHandle.addEventListener("mousedown", (e) => {
                     isResizing = true;
+                    suppressCloseDuringDrag = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startWidth = dialog.offsetWidth;
+                    startHeight = dialog.offsetHeight;
                     e.preventDefault();
                     e.stopPropagation();
                 });
 
                 document.addEventListener("mousemove", (e) => {
                     if (!isResizing) return;
-                    const rect = dialog.getBoundingClientRect();
-                    const newWidth = e.clientX - rect.left;
-                    const newHeight = e.clientY - rect.top;
+                    const newWidth = startWidth + (e.clientX - startX);
+                    const newHeight = startHeight + (e.clientY - startY);
                     if (newWidth > 320) dialog.style.width = `${newWidth}px`;
                     if (newHeight > 260) dialog.style.minHeight = `${newHeight}px`;
                 });
 
                 document.addEventListener("mouseup", () => {
                     isResizing = false;
+                    // keep suppression briefly to avoid click race that would close the overlay
+                    setTimeout(() => { suppressCloseDuringDrag = false; }, 150);
                 });
 
                 // Load and render favorites
@@ -240,8 +248,8 @@ app.registerExtension({
                         listDiv.appendChild(row);
                     });
 
-                    // Set folder
-                    listDiv.querySelectorAll(".save_it_fav_set").forEach(btn => {
+                        // Set folder
+                        listDiv.querySelectorAll(".save_it_fav_set").forEach(btn => {
                         btn.addEventListener("click", () => {
                             const folder = btn.getAttribute("data-folder");
                             const pw = getWidget("filename_prefix");
@@ -307,8 +315,9 @@ app.registerExtension({
 
                 // Close
                 dialog.querySelector("#save_it_fav_close").addEventListener("click", () => overlay.remove());
+                // Prevent accidental overlay close right after a drag/resize by checking suppression flag
                 overlay.addEventListener("click", (e) => {
-                    if (e.target === overlay) overlay.remove();
+                    if (e.target === overlay && !suppressCloseDuringDrag) overlay.remove();
                 });
             }
 
@@ -445,71 +454,57 @@ app.registerExtension({
             }
 
             // ── Browse & Set Path button ───────────────────────────────────
-            const browseBtn = this.addWidget("button", "📁  Browse & Set Save Path", null, async () => {
+			const browseBtn = this.addWidget("button", "📁  Browse & Set Save Path", null, async () => {
+                bringAppToFront();
+                await new Promise(resolve => setTimeout(resolve, 150));
                 try {
-                    const response = await api.fetchApi("/save_it/browse_folder", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({})
-                    });
-
-                    if (response.status === 204) return; // user cancelled
-
-                    if (!response.ok) {
-                        const err = await response.text();
-                        showToast(`❌ Browse failed: ${err}`, true);
-                        return;
+					const response = await api.fetchApi("/save_it/browse_folder", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({})
+					});
+					bringAppToFront();
+					if (response.status === 204) return;
+					if (!response.ok) {
+						const err = await response.text();
+						showToast(`❌ Browse failed: ${err}`, true);
+						return;
+					}
+					const data = await response.json();
+					if (!data || typeof data !== 'object') {
+						showToast("❌ Invalid response from server", true);
+						return;
+					}
+					const selectedPath = data.path;
+					if (!selectedPath) return;
+					const pw = getWidget("filename_prefix");
+					if (pw) {
+						try {
+							pw.value = selectedPath;
+							if (pw.callback && typeof pw.callback === 'function') {
+								pw.callback(selectedPath);
+							}
+						} catch (callbackError) {}
+						
+						try {
+							if (self.onWidgetChanged && typeof self.onWidgetChanged === 'function') {
+								self.onWidgetChanged("filename_prefix", selectedPath);
+							}
+						} catch (widgetError) {}
+						
+						try {
+							if (app.graph && typeof app.graph.setDirtyCanvas === 'function') {
+								app.graph.setDirtyCanvas(true, true);
+							}
+						} catch (graphError) {}
                     }
-
-                    const data = await response.json();
-                    if (!data || typeof data !== 'object') {
-                        showToast("❌ Invalid response from server", true);
-                        return;
-                    }
-                    const selectedPath = data.path;
-                    if (!selectedPath) return;
-
-                    // Set the filename_prefix widget to the selected path
-                    const pw = getWidget("filename_prefix");
-                    if (pw) {
-                        try {
-                            pw.value = selectedPath;
-                            // Trigger callback if it exists to update the node
-                            if (pw.callback && typeof pw.callback === 'function') {
-                                pw.callback(selectedPath);
-                            }
-                        } catch (callbackError) {
-                            console.warn("Widget callback error:", callbackError);
-                        }
-                        
-                        // Force the node to be marked as modified
-                        try {
-                            if (self.onWidgetChanged && typeof self.onWidgetChanged === 'function') {
-                                self.onWidgetChanged("filename_prefix", selectedPath);
-                            }
-                        } catch (widgetError) {
-                            console.warn("onWidgetChanged error:", widgetError);
-                        }
-                        
-                        // Mark the graph as dirty so changes are saved
-                        try {
-                            if (app.graph && typeof app.graph.setDirtyCanvas === 'function') {
-                                app.graph.setDirtyCanvas(true, true);
-                            }
-                        } catch (graphError) {
-                            console.warn("setDirtyCanvas error:", graphError);
-                        }
-                    }
-
                     showToast(`📁 Path set: ${selectedPath}`);
-
-                    // Offer to add to favorites
                     showAddToFavoritesPrompt(selectedPath);
-
-                } catch (e) {
-                    showToast(`❌ Error: ${e.message}`, true);
-                }
-            });
+					bringAppToFront();
+				} catch (e) {
+					showToast(`❌ Error: ${e.message}`, true);
+				}
+			});
             browseBtn.serialize = false;
 
             // ── Add to Favorites prompt ────────────────────────────────────
@@ -575,6 +570,35 @@ app.registerExtension({
                 setTimeout(dismiss, 15000);
             }
 
+            // Try to bring the application window (or its parent) to the foreground.
+            // If running inside Electron, prefer using the Electron window API to force-on-top briefly.
+            function bringAppToFront() {
+                try {
+                    if (typeof require === 'function') {
+                        const electron = require('electron');
+                        const cw = (electron.remote && electron.remote.getCurrentWindow) ? electron.remote.getCurrentWindow() : (electron.getCurrentWindow ? electron.getCurrentWindow() : null);
+                        if (cw && typeof cw.setAlwaysOnTop === 'function') {
+                            try {
+                                cw.setAlwaysOnTop(true);
+                                cw.focus && cw.focus();
+                                setTimeout(() => { try { cw.setAlwaysOnTop(false); } catch(_) {} }, 120);
+                                return;
+                            } catch (e) { /* fallthrough to window.focus fallback */ }
+                        }
+                    }
+                } catch (e) {}
+                // Fallback: try focusing window repeatedly for a short period
+                try { window.focus(); } catch (e) {}
+                try { if (window.parent && typeof window.parent.focus === 'function') window.parent.focus(); } catch (e) {}
+                let attempts = 0;
+                const tid = setInterval(() => {
+                    attempts++;
+                    try { window.focus(); } catch (_) {}
+                    try { if (window.parent && typeof window.parent.focus === 'function') window.parent.focus(); } catch (_) {}
+                    if (attempts >= 6) clearInterval(tid);
+                }, 100);
+            }
+
             // ── Save Image button ──────────────────────────────────────────
             const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
                 // Manual save should always work. Treat autosave as disabled when compare is ON.
@@ -585,21 +609,25 @@ app.registerExtension({
             saveBtn.serialize = false;
 
             // ── Open Folder button ─────────────────────────────────────────
-            const folderBtn = this.addWidget("button", "📂  Open Output Folder", null, async () => {
-                try {
-                    const response = await api.fetchApi("/save_it/open_folder", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ filename_prefix: getPrefix() })
-                    });
-                    if (!response.ok) {
-                        const err = await response.text();
-                        showToast(`❌ Could not open folder: ${err}`, true);
-                    }
-                } catch (e) {
-                    showToast(`❌ Error: ${e.message}`, true);
-                }
-            });
+			const folderBtn = this.addWidget("button", "📂  Open Output Folder", null, async () => {
+				bringAppToFront();
+				await new Promise(resolve => setTimeout(resolve, 100));
+				try {
+					const response = await api.fetchApi("/save_it/open_folder", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ filename_prefix: getPrefix() })
+					});
+					if (!response.ok) {
+						const err = await response.text();
+						showToast(`❌ Could not open folder: ${err}`, true);
+					}
+					await new Promise(resolve => setTimeout(resolve, 300));
+                    bringAppToFront();
+				} catch (e) {
+					showToast(`❌ Error: ${e.message}`, true);
+				}
+			});
             folderBtn.serialize = false;
 
             // ── Save History button ────────────────────────────────────────
