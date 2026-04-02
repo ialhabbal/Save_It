@@ -18,6 +18,9 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 ### Compare on with toggling
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/compare_on_with_toggling2.png)
 
+### Compare (vertical wipe left to right)
+![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/vertical_wipe_compare.png)
+
 ### Browse & Set Save Path
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/browse_&_set_save_path.png)
 
@@ -30,6 +33,10 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 ### Favorite Folders
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders.png)
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders1.png)
+
+## Update 1.3.5
+
+- Added vertical wip (left-to-right) compare.
 
 ## Update 1.3.0
 
@@ -101,7 +108,7 @@ Or manually:
 
 **Timestamp (ON/OFF toggle):** When set to OFF (the default), saved images are numbered sequentially — for example, `MyImage_00001.png`, `MyImage_00002.png`, and so on. The counter is stored in a hidden file called `.save_it_counter` inside the save folder and persists across ComfyUI restarts, so the numbering never resets unintentionally. When set to ON, a date and time stamp is appended to the filename instead — for example, `MyImage_2026-03-23_14-30-00.png`. If two images are saved within the same second, a numeric suffix is appended automatically to avoid collisions.
 
-**Compare (On/Off toggle):** When set to off (the default), the node will display one image (the generated image). When set to on, the node will display the generated image and the original image side by side, click on any image and the generated image will appear, also an "X" button and a "1/2 toggle" will appear next to the image. Toggle 1/2 for image comparison between the generated image and the original image. Click on "X" to close the comparison and return to the generated image.
+**Compare (On/Off toggle):** When set to off (the default), the node will display one image (the generated image). When set to on, the node will display a vertical wipe (left-to-right) compare. Turn off the compare and you will get the previous method of compare; the generated image and the original image side by side, click on any image and the generated image will appear, also an "X" button and a "1/2 toggle" will appear next to the image. Toggle 1/2 for image comparison between the generated image and the original image. Click on "X" to close the comparison and return to the generated image.
 
 ## Buttons
 
@@ -125,7 +132,7 @@ Or manually:
 - The Browse & Set Save Path button uses the Windows native IFileOpenDialog API via ctypes and does not require tkinter. It is currently only functional on Windows.
 - Workflow metadata (prompt and extra PNG info) is embedded in files saved via AutoSave when the format is PNG, preserving the full generation parameters alongside the image.
 
-## Known bug in v_1.3.0
+## Known bug in v_1.3.5
 
 When a folder is selected using “Browse & Set Save Path”:
 

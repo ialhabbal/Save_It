@@ -435,12 +435,13 @@ app.registerExtension({
             }
 
             async function doSave() {
-                const images = self.imgs;
-                if (!images || images.length === 0) {
+                // Prefer canonical currentImageA as single source of truth for manual save
+                const img = self.currentImageA || (self.imgs && self.imgs.length > 0 ? self.imgs[0] : null);
+                if (!img) {
                     showToast("No image to save. Please run the workflow first.", true);
                     return;
                 }
-                await doSaveImgs(images);
+                await doSaveImgs([img]);
             }
 
             // ── Browse & Set Path button ───────────────────────────────────
@@ -576,7 +577,9 @@ app.registerExtension({
 
             // ── Save Image button ──────────────────────────────────────────
             const saveBtn = this.addWidget("button", "💾  Save Image", null, async () => {
-                if (isAutoSave()) return;
+                // Manual save should always work. Treat autosave as disabled when compare is ON.
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                if (isAutoSave() && !cmpOn) return;
                 await doSave();
             });
             saveBtn.serialize = false;
@@ -617,155 +620,384 @@ app.registerExtension({
                 const originalCallback = autosaveWidget.callback;
                 autosaveWidget.callback = function(value) {
                     originalCallback?.call(this, value);
-                    saveBtn.disabled = value;
-                    // When autosave is turned ON, mark the current image as already saved
-                    // to prevent re-saving old temp images from before autosave was enabled
-                    if (value && self.imgs && self.imgs.length > 0) {
+                    // Disable manual save button only when autosave is ON and compare is OFF
+                    const cmpOn = getWidget("enable_compare")?.value ?? false;
+                    saveBtn.disabled = value && !cmpOn;
+                    // When autosave is turned ON and compare is OFF, mark the current image as already saved
+                    if (value && !cmpOn && self.imgs && self.imgs.length > 0) {
                         lastSavedSrc = self.imgs[0].src;
                     }
                 };
-                saveBtn.disabled = autosaveWidget.value;
+                // Initial state
+                saveBtn.disabled = autosaveWidget.value && !(getWidget("enable_compare")?.value ?? false);
             }
 
-			// ── AutoSave: only save newly generated images ─────────────────
-			let lastSavedSrc = null;
-
-            // ── NEW: Image Comparison State ────────────────────────────────
-            self.compareData = {
-                originalImage: null,
-                mouseX: null,
-                isHovering: false
-            };
-
-			this.onExecuted = function(output) {
-                // NEW: Store original image data if provided
-                if (output.original_image && output.original_image.filename) {
-                    self.compareData.originalImage = output.original_image;
-                } else {
-                    self.compareData.originalImage = null;
-                }
-
-                // Autosave logic
-				if (isAutoSave()) {
-					setTimeout(() => {
-						const images = self.imgs;
-						if (!images || images.length === 0) return;
-
-						// Only save the first image and only if its src is new
-						const img = images[0];
-						if (!img || img.src === lastSavedSrc) return;
-
-						// Check it's actually a fresh temp image not a previously saved output
-						const url = new URL(img.src, window.location.origin);
-						const type = url.searchParams.get("type") || "";
-						const filename = url.searchParams.get("filename") || "";
-						
-						// Skip if already saved to output by Python autosave
-						// Only proceed if it's a temp file AND hasn't been saved yet
-						if (type !== "temp") return;
-						
-						// Additional check: skip if filename doesn't look like a temp preview file
-						const tempPrefix = "save_it_preview";
-						if (!filename.includes(tempPrefix)) return;
-
-						lastSavedSrc = img.src;
-						doSaveImgs([img]);
-					}, 300);
-				}
-			};
-
-            // NEW: Hook into mouse events for comparison
-            const originalOnMouseMove = this.onMouseMove;
-            this.onMouseMove = function(e, localPos, graphCanvas) {
-                if (originalOnMouseMove) {
-                    originalOnMouseMove.call(this, e, localPos, graphCanvas);
-                }
-
-                // Only track if we have an original image
-                if (self.compareData.originalImage && self.imgs && self.imgs.length > 0) {
-                    // Check if mouse is over the image area
-                    const imageY = this.size[1] - 220; // Approximate image position
-                    if (localPos[1] > imageY) {
-                        self.compareData.isHovering = true;
-                        self.compareData.mouseX = localPos[0];
-                        this.setDirtyCanvas(true, false);
-                    } else if (self.compareData.isHovering) {
-                        self.compareData.isHovering = false;
-                        this.setDirtyCanvas(true, false);
+            // Watch compare toggle to enable/disable autosave and clear compare UI when toggled off
+            const compareWidget = getWidget("enable_compare");
+            if (compareWidget) {
+                const origCmpCallback = compareWidget.callback;
+                compareWidget.callback = function(value) {
+                    origCmpCallback?.call(this, value);
+                    // If compare enabled, ensure manual save remains enabled (autosave suppressed)
+                    if (value) {
+                        saveBtn.disabled = false;
+                        // force autosave off in UI and logic
+                        try { if (autosaveWidget) { autosaveWidget.value = false; autosaveWidget.disabled = true; } } catch(e) {}
+                    } else {
+                        // When disabling compare, clear compare images and restore save button according to autosave
+                        self._cmpImg1 = null; self._cmpImg2 = null;
+                        self.currentImageA = null; self.currentImageB = null;
+                        try { if (autosaveWidget) { autosaveWidget.disabled = false; } } catch(e) {}
+                        saveBtn.disabled = (getWidget("autosave")?.value ?? false);
+                        app.graph.setDirtyCanvas(true, true);
                     }
-                }
-            };
+                };
+            }
 
-            const originalOnMouseLeave = this.onMouseLeave;
-            this.onMouseLeave = function(e) {
-                if (originalOnMouseLeave) {
-                    originalOnMouseLeave.call(this, e);
-                }
-                if (self.compareData.isHovering) {
-                    self.compareData.isHovering = false;
-                    this.setDirtyCanvas(true, false);
-                }
-            };
+            // ── AutoSave: only save newly generated images ─────────────────
+            let lastSavedSrc = null;
 
-            // NEW: Draw comparison overlay using onDrawForeground
-            const originalOnDrawForeground = this.onDrawForeground;
-            this.onDrawForeground = function(ctx) {
-                if (originalOnDrawForeground) {
-                    originalOnDrawForeground.call(this, ctx);
-                }
+            // ── Replace compare UI with Pixaroma compare (adapted) ───────
+            // Constants and helpers (scoped to this node instance)
+            const BRAND = "#f66744";
+            const MODES = ["Left Right", "Up Down", "Overlay", "Difference"];
+            const SLIDER_PAD = 50; // "Opacity" label width
+            const MODE_HINTS = [
+                "↔  Hover image to slide left / right",
+                "↕  Hover image to slide up / down",
+                "",
+                "Shows pixel differences between images",
+            ];
 
-                // Only draw if we have both images and mouse is hovering
-                if (!self.compareData.originalImage || !self.compareData.isHovering || !self.imgs || self.imgs.length === 0) {
+            const BTN_GAP = 3;
+            const BTN_H = 18;
+            const BTN_W = 56;
+            const BTN_X = 80;       // start X (right of input labels)
+            const ROW1_Y = 10;
+            const ROW2_Y = 30;
+            const IMG_Y = 54;        // image area starts here
+            const INIT_W = 400;
+            const INIT_H = INIT_W + IMG_Y; // square preview area
+            const MIN_W = BTN_X + BTN_W * 4 + BTN_GAP * 3 + 6;
+            const MIN_H = IMG_Y + 100;
+
+            function modeRect(i) { return { x: BTN_X + i * (BTN_W + BTN_GAP), y: ROW1_Y, w: BTN_W, h: BTN_H }; }
+            function hintRect() { return { x: BTN_X, y: ROW2_Y, w: BTN_W * 4 + BTN_GAP * 3, h: BTN_H }; }
+            function inside(pos, r) { return pos[0] >= r.x && pos[0] <= r.x + r.w && pos[1] >= r.y && pos[1] <= r.y + r.h; }
+            function paintBtn(ctx, r, label, on) {
+                ctx.fillStyle = on ? BRAND : "#2a2c2e";
+                ctx.strokeStyle = on ? BRAND : "#444";
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                if (ctx.roundRect) ctx.roundRect(r.x, r.y, r.w, r.h, 3);
+                else ctx.rect(r.x, r.y, r.w, r.h);
+                ctx.fill(); ctx.stroke();
+                ctx.fillStyle = on ? "#fff" : "#999";
+                ctx.font = "9px 'Segoe UI',sans-serif";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2);
+            }
+
+
+            // Initialize compare state on this node instance
+            this._cmpMode = 0;
+            this._cmpSplitX = 0;
+            this._cmpSplitY = 0;
+            this._cmpOpacity = 0.5;
+            this._cmpImg1 = null;
+            this._cmpImg2 = null;
+            // Single source of truth for images (used by compare UI and manual save)
+            this.currentImageA = null;
+            this.currentImageB = null;
+            this.size[0] = INIT_W;
+            this.size[1] = INIT_H;
+
+            // Merge autosave + compare image loading into onExecuted
+            const _origOnExecuted = this.onExecuted;
+            this.onExecuted = function (output) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+
+                if (!cmpOn) {
+                    // Normal behavior (preserve original autosave logic)
+                    _origOnExecuted?.call(this, output);
+                    // ensure currentImageA is updated from the default preview imgs
+                    try {
+                        if (this.imgs && this.imgs.length > 0) {
+                            this.currentImageA = this.imgs[0];
+                        }
+                    } catch (e) {}
                     return;
                 }
 
-                const editedImg = self.imgs[0];
-                if (!editedImg || !editedImg.currentSrc) return;
+                // When compare is ON: disable default preview and load compare images
+                this.imgs = null;
 
-                // Build original image URL
-                const origData = self.compareData.originalImage;
-                const origUrl = api.apiURL(
-                    `/view?filename=${encodeURIComponent(origData.filename)}&type=${origData.type}&subfolder=${encodeURIComponent(origData.subfolder || '')}`
-                );
-
-                // Load original image if not already loaded
-                if (!self.compareData.originalImgElement) {
-                    self.compareData.originalImgElement = new Image();
-                    self.compareData.originalImgElement.src = origUrl;
+                if (!output?.images || output.images.length < 2) {
+                    // No compare images available
+                    this._cmpImg1 = null; this._cmpImg2 = null;
+                    this.currentImageA = null; this.currentImageB = null;
+                    app.graph.setDirtyCanvas(true, true);
+                    return;
                 }
 
-                const originalImgEl = self.compareData.originalImgElement;
-                if (!originalImgEl.complete) return;
+                const load = (d, idx) => {
+                    const url = `/view?filename=${encodeURIComponent(d.filename)}&type=${encodeURIComponent(d.type)}&subfolder=${encodeURIComponent(d.subfolder || "")}&t=${Date.now()}`;
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => {
+                        if (idx === 0) this._cmpImg1 = img; else this._cmpImg2 = img;
+                        // Set canonical image references used for saving and rendering
+                        if (this._cmpImg1) this.currentImageA = this._cmpImg1;
+                        if (this._cmpImg2) this.currentImageB = this._cmpImg2;
+                        // Also expose the loaded images as `this.imgs` so legacy code can still use it
+                        if (this._cmpImg1 && this._cmpImg2) {
+                            this.imgs = [this._cmpImg1, this._cmpImg2];
+                        }
+                        app.graph.setDirtyCanvas(true, true);
+                    };
+                    img.src = url;
+                };
+                load(output.images[0], 0);
+                load(output.images[1], 1);
+            };
 
-                // Calculate image display area (similar to how ComfyUI displays images)
-                const imageY = this.size[1] - 220;
-                const imageH = 220;
-                const imageW = this.size[0];
+            // Ensure default background rendering doesn't restore imgs when compare is ON
+            const _origOnDrawBackground = this.onDrawBackground;
+            this.onDrawBackground = function () {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                if (cmpOn) {
+                    if (this.imgs) this.imgs = null;
+                } else {
+                    _origOnDrawBackground?.call(this);
+                }
+            };
 
-                // Draw original image (full)
+            // Draw full compare UI (preserve existing foreground draw)
+            const _origDraw = this.onDrawForeground;
+            this.onDrawForeground = function (ctx) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                // If compare is OFF, defer to original draw (preserve existing UI)
+                if (!cmpOn) {
+                    _origDraw?.call(this, ctx);
+                    return;
+                }
+
+                // Compute widget area height so compare controls render below node widgets
+                let widgetHeight = 0;
+                if (this.widgets && this.widgets.length) {
+                    for (const w of this.widgets) {
+                        try {
+                            const s = w.computeSize ? w.computeSize() : [0, 18];
+                            widgetHeight += Math.max(0, s[1]);
+                        } catch (e) {}
+                    }
+                }
+
+                // Dynamic layout positions
+                const row1Y = Math.max(10, widgetHeight + 6);
+                const row2Y = row1Y + BTN_H + 6;
+                // Add vertical spacing above the image
+                // Push the compare canvas down by ~1 inch (≈96px) so it doesn't overlap controls
+                const imgY = row2Y + BTN_H + 10 + 24 + 96; // added 96px to push canvas down ~1in
+
+                // Keep original foreground drawing so existing node controls remain visible
+                _origDraw?.call(this, ctx);
+
+                // Store layout for mouse handlers (START_X is computed later where buttons are drawn)
+                this._cmpLayout = { ROW1_Y: row1Y, ROW2_Y: row2Y, IMG_Y: imgY };
+
+                // Ensure min size to accommodate controls + image
+                if (this.size[0] < MIN_W) this.size[0] = MIN_W;
+                // Ensure extra room below image for compare buttons
+                if (this.size[1] < imgY + 140) this.size[1] = imgY + 140;
+                const w = this.size[0], h = this.size[1];
+
+                // (Buttons moved below image -- drawing happens after image area)
+
+                // Image area
+                const imgH = h - imgY;
+                if (!this._cmpImg1 && !this._cmpImg2) {
+                    ctx.save();
+                    ctx.fillStyle = "#171718"; ctx.fillRect(0, imgY, w, imgH);
+                    ctx.fillStyle = "#555"; ctx.font = "12px 'Segoe UI',sans-serif";
+                    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                    ctx.fillText("Connect images & run to compare", w / 2, imgY + imgH / 2);
+                    ctx.restore();
+                    return;
+                }
+
+                const fit = (img) => {
+                    if (!img) return { x: 0, y: imgY, w, h: imgH };
+                    const a = img.naturalWidth / img.naturalHeight;
+                    const fh = w / a;
+                    if (fh <= imgH) return { x: 0, y: imgY + (imgH - fh) / 2, w, h: fh };
+                    const fw = imgH * a;
+                    return { x: (w - fw) / 2, y: imgY, w: fw, h: imgH };
+                };
+                const fr1 = fit(this._cmpImg1), fr2 = fit(this._cmpImg2);
+
                 ctx.save();
-                ctx.globalAlpha = 1.0;
-                ctx.drawImage(originalImgEl, 0, imageY, imageW, imageH);
-
-                // Draw edited image (clipped based on mouse X position)
-                if (self.compareData.mouseX !== null) {
-                    ctx.beginPath();
-                    ctx.rect(self.compareData.mouseX, imageY, imageW - self.compareData.mouseX, imageH);
-                    ctx.clip();
-                    ctx.drawImage(editedImg, 0, imageY, imageW, imageH);
+                ctx.beginPath(); ctx.rect(0, imgY, w, imgH); ctx.clip();
+                ctx.fillStyle = "#111"; ctx.fillRect(0, imgY, w, imgH);
+                const m = this._cmpMode;
+                if (m === 0) {
+                    const sx = w * this._cmpSplitX;
+                    if (this._cmpImg1) { ctx.save(); ctx.beginPath(); ctx.rect(sx, imgY, w - sx, imgH); ctx.clip(); ctx.drawImage(this._cmpImg1, fr1.x, fr1.y, fr1.w, fr1.h); ctx.restore(); }
+                    if (this._cmpImg2) { ctx.save(); ctx.beginPath(); ctx.rect(0, imgY, sx, imgH); ctx.clip(); ctx.drawImage(this._cmpImg2, fr2.x, fr2.y, fr2.w, fr2.h); ctx.restore(); }
+                    if (this._cmpSplitX > 0.01 && this._cmpSplitX < 0.99) { ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, imgY); ctx.lineTo(sx, imgY + imgH); ctx.stroke(); }
+                } else if (m === 1) {
+                    const sy = imgY + imgH * this._cmpSplitY;
+                    if (this._cmpImg1) { ctx.save(); ctx.beginPath(); ctx.rect(0, sy, w, imgY + imgH - sy); ctx.clip(); ctx.drawImage(this._cmpImg1, fr1.x, fr1.y, fr1.w, fr1.h); ctx.restore(); }
+                    if (this._cmpImg2) { ctx.save(); ctx.beginPath(); ctx.rect(0, imgY, w, sy - imgY); ctx.clip(); ctx.drawImage(this._cmpImg2, fr2.x, fr2.y, fr2.w, fr2.h); ctx.restore(); }
+                    if (this._cmpSplitY > 0.01 && this._cmpSplitY < 0.99) { ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke(); }
+                } else if (m === 2) {
+                    if (this._cmpImg1) ctx.drawImage(this._cmpImg1, fr1.x, fr1.y, fr1.w, fr1.h);
+                    if (this._cmpImg2) { ctx.globalAlpha = this._cmpOpacity; ctx.drawImage(this._cmpImg2, fr2.x, fr2.y, fr2.w, fr2.h); ctx.globalAlpha = 1; }
+                } else {
+                    if (this._cmpImg1) ctx.drawImage(this._cmpImg1, fr1.x, fr1.y, fr1.w, fr1.h);
+                    if (this._cmpImg2) { ctx.globalCompositeOperation = "difference"; ctx.drawImage(this._cmpImg2, fr2.x, fr2.y, fr2.w, fr2.h); ctx.globalCompositeOperation = "source-over"; }
                 }
-
-                // Draw divider line
-                if (self.compareData.mouseX !== null) {
-                    ctx.beginPath();
-                    ctx.moveTo(self.compareData.mouseX, imageY);
-                    ctx.lineTo(self.compareData.mouseX, imageY + imageH);
-                    ctx.strokeStyle = "#2a9d8f";
-                    ctx.lineWidth = 2;
-                    ctx.stroke();
-                }
-
                 ctx.restore();
+
+                // Draw mode buttons and slider below the image (after image area)
+                try {
+                    const btnRow1Y = imgY + imgH + 8;
+                    const btnRow2Y = btnRow1Y + BTN_H + 6;
+                    // update layout for mouse handlers
+                    this._cmpLayout = { ROW1_Y: btnRow1Y, ROW2_Y: btnRow2Y, IMG_Y: imgY };
+
+                    // Row 1: compute horizontal layout for where the mode buttons would be
+                    ctx.save();
+                    const totalBtnsW = BTN_W * 4 + BTN_GAP * 3;
+                    const startX = Math.round((w - totalBtnsW) / 2);
+                    // NOTE: Mode buttons are intentionally not drawn (UI-only removal).
+                    ctx.restore();
+
+                    // Row 2: opacity slider (kept) or no hint text (hint removed)
+                    ctx.save();
+                    const r2 = { x: BTN_X, y: btnRow2Y, w: BTN_W * 4 + BTN_GAP * 3, h: BTN_H };
+                    if (this._cmpMode === 2) {
+                        const trackX = r2.x + SLIDER_PAD;
+                        const trackW = r2.w - SLIDER_PAD - 36;
+                        const trackY = r2.y + r2.h / 2 - 3;
+                        const trackH = 6;
+                        const pct = this._cmpOpacity;
+                        const thumbX = trackX + trackW * pct;
+
+                        ctx.font = "9px 'Segoe UI',sans-serif";
+                        ctx.fillStyle = "#999"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+                        ctx.fillText("Opacity", r2.x, r2.y + r2.h / 2);
+
+                        ctx.fillStyle = "#2a2c2e";
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(trackX, trackY, trackW, trackH, 3);
+                        else ctx.rect(trackX, trackY, trackW, trackH);
+                        ctx.fill();
+
+                        ctx.fillStyle = BRAND;
+                        ctx.beginPath();
+                        if (ctx.roundRect) ctx.roundRect(trackX, trackY, Math.max(0, trackW * pct), trackH, 3);
+                        else ctx.rect(trackX, trackY, trackW * pct, trackH);
+                        ctx.fill();
+
+                        ctx.fillStyle = BRAND;
+                        ctx.beginPath(); ctx.arc(thumbX, r2.y + r2.h / 2, 6, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = "#fff";
+                        ctx.beginPath(); ctx.arc(thumbX, r2.y + r2.h / 2, 2.5, 0, Math.PI * 2); ctx.fill();
+
+                        ctx.fillStyle = "#ccc"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+                        ctx.fillText(`${Math.round(pct * 100)}%`, trackX + trackW + 6, r2.y + r2.h / 2);
+
+                        this._cmpSliderGeo = { x: trackX, y: trackY - 6, w: trackW, h: trackH + 12 };
+                    } else {
+                        // Hint text removed from UI; keep slider geometry cleared
+                        this._cmpSliderGeo = null;
+                    }
+                    ctx.restore();
+                    // Save startX for mouse hit-testing (buttons are hidden visually)
+                    this._cmpLayout.START_X = startX;
+                } catch (e) { console.warn('draw compare buttons error', e); }
+            };
+
+            // Mouse handling (instance-level, preserve original handlers)
+            const _origDown = this.onMouseDown;
+            this.onMouseDown = function (e, pos) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                if (!cmpOn) return _origDown ? _origDown.call(this, e, pos) : undefined;
+
+                // Mode buttons (use layout below image). Use START_X to center buttons.
+                const layout = this._cmpLayout || { ROW1_Y: ROW1_Y, ROW2_Y: ROW2_Y, IMG_Y: IMG_Y, START_X: BTN_X };
+                const startX = layout.START_X ?? BTN_X;
+                for (let i = 0; i < 4; i++) {
+                    const r = { x: startX + i * (BTN_W + BTN_GAP), y: layout.ROW1_Y, w: BTN_W, h: BTN_H };
+                    if (inside(pos, r)) { this._cmpMode = i; app.graph.setDirtyCanvas(true, true); return true; }
+                }
+
+                // Opacity slider drag start
+                if (this._cmpMode === 2 && this._cmpSliderGeo) {
+                    const sg = this._cmpSliderGeo;
+                    if (pos[0] >= sg.x - 8 && pos[0] <= sg.x + sg.w + 8 && pos[1] >= sg.y && pos[1] <= sg.y + sg.h) {
+                        this._cmpOpacity = Math.max(0, Math.min(1, (pos[0] - sg.x) / sg.w));
+                        this._cmpDragging = true;
+                        app.graph.setDirtyCanvas(true, true);
+                        return true;
+                    }
+                }
+                if (_origDown) return _origDown.call(this, e, pos);
+            };
+
+            const _origMove = this.onMouseMove;
+            this.onMouseMove = function (e, pos) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                if (!cmpOn) {
+                    if (_origMove) return _origMove.call(this, e, pos);
+                    return;
+                }
+
+                // Slider drag (node-level)
+                if (this._cmpDragging && this._cmpSliderGeo) {
+                    const sg = this._cmpSliderGeo;
+                    this._cmpOpacity = Math.max(0, Math.min(1, (pos[0] - sg.x) / sg.w));
+                    app.graph.setDirtyCanvas(true, true);
+                    return;
+                }
+                if ((this._cmpMode === 0 || this._cmpMode === 1) && (this._cmpImg1 || this._cmpImg2)) {
+                    const layout = this._cmpLayout || { IMG_Y: IMG_Y };
+                    const imgW = this.size[0], imgH = this.size[1] - layout.IMG_Y;
+                    if (this._cmpMode === 0) this._cmpSplitX = Math.max(0, Math.min(1, pos[0] / imgW));
+                    else this._cmpSplitY = Math.max(0, Math.min(1, (pos[1] - layout.IMG_Y) / imgH));
+                    app.graph.setDirtyCanvas(true, true);
+                }
+                if (_origMove) return _origMove.call(this, e, pos);
+            };
+
+            const _origUp = this.onMouseUp;
+            this.onMouseUp = function (e, pos) {
+                this._cmpDragging = false;
+                if (_origUp) return _origUp.call(this, e, pos);
+            };
+
+            const _origWheel = this.onMouseWheel;
+            this.onMouseWheel = function (e, pos) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                if (!cmpOn) return _origWheel ? _origWheel.call(this, e, pos) : undefined;
+                const layout = this._cmpLayout || { ROW1_Y: ROW1_Y };
+                if (this._cmpMode === 2 && pos[1] > layout.ROW1_Y) {
+                    this._cmpOpacity = Math.max(0, Math.min(1, this._cmpOpacity + (e.deltaY > 0 ? -0.05 : 0.05)));
+                    app.graph.setDirtyCanvas(true, true);
+                    return true;
+                }
+                if (_origWheel) return _origWheel.call(this, e, pos);
+            };
+
+            const _origLeave = this.onMouseLeave;
+            this.onMouseLeave = function (e) {
+                const cmpOn = getWidget("enable_compare")?.value ?? false;
+                this._cmpDragging = false;
+                if (!cmpOn) return _origLeave ? _origLeave.call(this, e) : undefined;
+                if (this._cmpMode === 0) { this._cmpSplitX = 0; app.graph.setDirtyCanvas(true, true); }
+                else if (this._cmpMode === 1) { this._cmpSplitY = 0; app.graph.setDirtyCanvas(true, true); }
+                if (_origLeave) return _origLeave.call(this, e);
             };
         };
     }

@@ -381,48 +381,80 @@ def save_images_with_metadata(images, output_dir, save_type, prompt=None, extra_
     return results
 
 
-# ─── ADDED: Compare Functionality ────────────────────────────────────────────
+# ─── REPLACED: Compare Functionality (ported from nodes_compare.py) ────────
 
-def save_compare_images(image_a, original_image, filename_prefix, prompt, extra_pnginfo, compress_level=4):
+def save_compare_images(image_a, original_image, filename_prefix, compress_level=4):
     """
-    # ADDED
-    Save two images for comparison with 'a.' and 'b.' prefixes.
-    Returns a dict with separate a_images and b_images arrays.
-    Based on Compare node logic from ialhabbal/compare repository.
+    Replacement for previous compare helper. Ported and adapted from
+    `nodes_compare.PixaromaCompare.compare_images`.
+
+    Saves two images into the temp directory with a shared prefix and
+    returns a UI-style dict: {"ui": {"images": [img_a, img_b]}}
+    where each img is a dict {filename, subfolder, type} (type == "temp").
     """
-    result = {"a_images": [], "b_images": []}
+    results = []
     output_dir = folder_paths.get_temp_directory()
 
-    if image_a is not None and len(image_a) > 0:
-        a_prefix = filename_prefix + "a."
-        a_saved = save_images_with_metadata(
-            images=image_a,
-            output_dir=output_dir,
-            save_type="temp",
-            prompt=prompt,
-            extra_pnginfo=extra_pnginfo,
-            prefix=a_prefix,
-            compress_level=compress_level
-        )
-        result["a_images"] = a_saved
+    # Robust checks for inputs (avoid evaluating a Tensor's truthiness)
+    def _has_images(x):
+        if x is None:
+            return False
+        if isinstance(x, torch.Tensor):
+            return x.numel() != 0
+        try:
+            return len(x) > 0
+        except Exception:
+            return False
 
-    if original_image is not None and len(original_image) > 0:
-        # Save the original image to temp (so the frontend can access it for
-        # an interactive comparison). We will ensure the frontend's Save
-        # action only persists the generated image.
-        b_prefix = filename_prefix + "b."
-        b_saved = save_images_with_metadata(
-            images=original_image,
-            output_dir=output_dir,
-            save_type="temp",
-            prompt=prompt,
-            extra_pnginfo=extra_pnginfo,
-            prefix=b_prefix,
-            compress_level=compress_level
-        )
-        result["b_images"] = b_saved
+    # Determine width/height from an available tensor
+    first_tensor = None
+    if _has_images(image_a):
+        first_tensor = image_a[0] if not isinstance(image_a, torch.Tensor) else image_a[0]
+    elif _has_images(original_image):
+        first_tensor = original_image[0] if not isinstance(original_image, torch.Tensor) else original_image[0]
 
-    return result
+    if first_tensor is None:
+        return {"ui": {"images": results}}
+
+    arr0 = first_tensor.cpu().numpy()
+    if arr0.ndim == 3 and arr0.shape[0] in (1, 3, 4):
+        height, width = arr0.shape[1], arr0.shape[2]
+    else:
+        height, width = arr0.shape[0], arr0.shape[1]
+
+    prefix = filename_prefix
+    full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
+        prefix, output_dir, width, height
+    )
+
+    # Helper to save a single image-list (take first frame)
+    def _save_one(img_list):
+        nonlocal counter
+        if not _has_images(img_list):
+            return None
+        tensor = img_list[0] if not isinstance(img_list, torch.Tensor) else img_list[0]
+        arr = tensor.cpu().numpy()
+        if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):
+            arr = np.transpose(arr, (1, 2, 0))
+        if arr.dtype != np.uint8:
+            arr = (255. * arr).clip(0, 255).astype('uint8')
+
+        img = Image.fromarray(arr)
+        file = f"{filename}_{counter:05}_.png"
+        img.save(os.path.join(full_output_folder, file), compress_level=compress_level)
+        entry = {"filename": file, "subfolder": subfolder, "type": "temp"}
+        counter += 1
+        return entry
+
+    a_entry = _save_one(image_a)
+    if a_entry:
+        results.append(a_entry)
+
+    b_entry = _save_one(original_image)
+    if b_entry:
+        results.append(b_entry)
+
+    return {"ui": {"images": results}}
 
 
 # ─── Node ─────────────────────────────────────────────────────────────────────
@@ -518,32 +550,16 @@ class Save_It:
 
         # ADDED: Compare mode logic (only runs when enable_compare is True)
         if enable_compare and original_image is not None:
-            # Save both images with compare prefixes
+            # Save both images with compare prefixes and return UI images (temp)
             temp_prefix = "save_it_compare" + self.prefix_append
-            compare_data = save_compare_images(
+            compare_ui = save_compare_images(
                 image_a=images,
                 original_image=original_image,
                 filename_prefix=temp_prefix,
-                prompt=prompt,
-                extra_pnginfo=extra_pnginfo,
                 compress_level=self.compress_level
             )
-            
-            # Return compare-specific UI data
-            # Frontend will detect a_images and b_images and render comparison widget
-            ui_output = {
-                "images": [],  # Standard preview (can be empty or contain first images)
-                "a_images": compare_data["a_images"],
-                "b_images": compare_data["b_images"]
-            }
-            
-            # Also add first image from each to standard images array for fallback
-            if compare_data["a_images"]:
-                ui_output["images"].append(compare_data["a_images"][0])
-            if compare_data["b_images"]:
-                ui_output["images"].append(compare_data["b_images"][0])
-            
-            return {"ui": ui_output}
+            # `save_compare_images` returns a dict in the form {"ui": {"images": [...]}}
+            return compare_ui
 
         # ORIGINAL (unchanged) - Standard Save_It behavior when compare is disabled
         ui_images_data = []
