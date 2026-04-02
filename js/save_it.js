@@ -657,7 +657,6 @@ app.registerExtension({
             // ── AutoSave: only save newly generated images ─────────────────
             let lastSavedSrc = null;
 
-            // ── Replace compare UI with Pixaroma compare (adapted) ───────
             // Constants and helpers (scoped to this node instance)
             const BRAND = "#f66744";
             const MODES = ["Left Right", "Up Down", "Overlay", "Difference"];
@@ -821,7 +820,7 @@ app.registerExtension({
                     ctx.fillStyle = "#171718"; ctx.fillRect(0, imgY, w, imgH);
                     ctx.fillStyle = "#555"; ctx.font = "12px 'Segoe UI',sans-serif";
                     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-                    ctx.fillText("Connect images & run to compare", w / 2, imgY + imgH / 2);
+                    ctx.fillText("Save_It", w / 2, imgY + imgH / 2);
                     ctx.restore();
                     return;
                 }

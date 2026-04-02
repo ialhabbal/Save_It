@@ -385,9 +385,8 @@ def save_images_with_metadata(images, output_dir, save_type, prompt=None, extra_
 
 def save_compare_images(image_a, original_image, filename_prefix, compress_level=4):
     """
-    Replacement for previous compare helper. Ported and adapted from
-    `nodes_compare.PixaromaCompare.compare_images`.
-
+    Replacement for previous compare helper.
+    
     Saves two images into the temp directory with a shared prefix and
     returns a UI-style dict: {"ui": {"images": [img_a, img_b]}}
     where each img is a dict {filename, subfolder, type} (type == "temp").
