@@ -36,7 +36,7 @@ Save_It is a ComfyUI custom node that gives you full control over when and how y
 
 ## Update 1.3.5
 
-- Added vertical wip (left-to-right) compare.
+- Added vertical wipe (left-to-right) compare.
 
 ## Update 1.3.0
 
