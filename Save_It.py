@@ -381,7 +381,7 @@ def save_images_with_metadata(images, output_dir, save_type, prompt=None, extra_
     return results
 
 
-# ─── REPLACED: Compare Functionality (ported from nodes_compare.py) ────────
+# ─── REPLACED: Compare Functionality ────────
 
 def save_compare_images(image_a, original_image, filename_prefix, compress_level=4):
     """
