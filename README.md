@@ -131,7 +131,3 @@ Or manually:
 - Save History is stored in browser local storage. It will persist across sessions but will be lost if you clear your browser's stored data.
 - The Browse & Set Save Path button uses the Windows native IFileOpenDialog API via ctypes and does not require tkinter. It is currently only functional on Windows.
 - Workflow metadata (prompt and extra PNG info) is embedded in files saved via AutoSave when the format is PNG, preserving the full generation parameters alongside the image.
-
-## Known bug in v_1.3.5
-
-When "filename_prefix field" is selected using “Browse & Set Save Path”, the AutoSave successfully saves the image to the chosen folder, but the image is not displayed in the node.

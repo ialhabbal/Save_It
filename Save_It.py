@@ -586,6 +586,19 @@ class Save_It:
 
             out_base_dir = folder_paths.get_output_directory()
             out_dir, base_name, out_subfolder = resolve_output_dir(filename_prefix, out_base_dir)
+
+            # Determine whether the chosen out_dir is inside the ComfyUI output
+            # directory. If it's outside (e.g. another drive), we still save the
+            # image to the chosen location but also create a temporary copy in
+            # the app temp folder and return a `type: "temp"` preview entry so
+            # the UI can load the image for preview. This avoids server errors
+            # when the output path is on a different drive.
+            def _is_within_base(path, base):
+                try:
+                    return os.path.commonpath([os.path.abspath(path), os.path.abspath(base)]) == os.path.abspath(base)
+                except Exception:
+                    return False
+            _inside_output = _is_within_base(out_dir, out_base_dir)
             _, ext = get_pil_format_and_ext(format)
 
             results = []
@@ -611,11 +624,41 @@ class Save_It:
                     save_pil_image(img, dst_path, format, quality,
                                    metadata=(metadata if format == "PNG" else None),
                                    compress_level=self.compress_level)
-                    results.append({
-                        "filename": new_filename,
-                        "subfolder": out_subfolder,
-                        "type": "output"
-                    })
+                    # If the saved file is outside the ComfyUI output dir (for
+                    # example on another drive), create a temp preview copy and
+                    # return that as a `temp` entry so the UI can display it.
+                    if not _inside_output:
+                        try:
+                            temp_dir = folder_paths.get_temp_directory()
+                            temp_dst = os.path.join(temp_dir, new_filename)
+                            # Prefer copying the exact saved file to the temp
+                            # folder so the preview matches the saved image.
+                            try:
+                                shutil.copy(dst_path, temp_dst)
+                            except Exception:
+                                # Fallback: re-save from PIL Image if copy fails
+                                save_pil_image(img, temp_dst, format, quality,
+                                               metadata=(metadata if format == "PNG" else None),
+                                               compress_level=self.compress_level)
+                            results.append({
+                                "filename": new_filename,
+                                "subfolder": "",
+                                "type": "temp"
+                            })
+                        except Exception:
+                            # If anything goes wrong, still return the output
+                            # entry so saving remains correct (preview may fail).
+                            results.append({
+                                "filename": new_filename,
+                                "subfolder": out_subfolder,
+                                "type": "output"
+                            })
+                    else:
+                        results.append({
+                            "filename": new_filename,
+                            "subfolder": out_subfolder,
+                            "type": "output"
+                        })
                 else:
                     
                     output_dir = folder_paths.get_temp_directory()
