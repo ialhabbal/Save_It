@@ -747,10 +747,27 @@ app.registerExtension({
                 if (!cmpOn) {
                     // Normal behavior (preserve original autosave logic)
                     _origOnExecuted?.call(this, output);
-                    // ensure currentImageA is updated from the default preview imgs
+                    // Ensure currentImageA references the newest generated image.
+                    // Use the freshly-provided `output.images` (if present) and
+                    // assign `currentImageA` in the image onload handler so we
+                    // don't capture a stale/previous preview element.
                     try {
-                        if (this.imgs && this.imgs.length > 0) {
-                            this.currentImageA = this.imgs[0];
+                        if (output?.images && output.images.length > 0) {
+                            const d = output.images[0];
+                            const url = `/view?filename=${encodeURIComponent(d.filename)}&type=${encodeURIComponent(d.type)}&subfolder=${encodeURIComponent(d.subfolder || "")}&t=${Date.now()}`;
+                            const img = new Image();
+                            img.crossOrigin = "anonymous";
+                            img.onload = () => {
+                                this.currentImageA = img;
+                                // keep legacy preview array in sync
+                                this.imgs = [img];
+                                app.graph.setDirtyCanvas(true, true);
+                            };
+                            img.src = url;
+                        } else {
+                            if (this.imgs && this.imgs.length > 0) {
+                                this.currentImageA = this.imgs[0];
+                            }
                         }
                     } catch (e) {}
                     return;

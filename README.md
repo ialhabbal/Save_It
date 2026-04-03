@@ -134,18 +134,4 @@ Or manually:
 
 ## Known bug in v_1.3.5
 
-When a folder is selected using “Browse & Set Save Path”:
-
-- AutoSave successfully saves the image to the chosen folder, but the image is not displayed in the node.
-- Re-running the workflow with AutoSave enabled does not save the image again.
-- Enabling the timestamp and running the workflow saves the image to the folder, but it still does not appear in the node.
-- Disabling the timestamp and running the workflow again still saves the image, but the node display issue persists.
-- On subsequent runs, AutoSave stops saving the image altogether.
-- In general, AutoSave functions (including when toggling the timestamp), but images saved via “Browse & Set Save Path” never appear in the node.
-
-When saving to a manually selected folder (not using “Browse & Set Save Path”):
-
-- AutoSave initially works correctly.
-- However, re-running the workflow does not save a new image or increment the filename, unlike manual saving.
-- If the timestamp is enabled and the workflow is run, the image is saved and appears in the node.
-- But on subsequent runs, AutoSave again fails to save new images or increment filenames.
+When "filename_prefix field" is selected using “Browse & Set Save Path”, the AutoSave successfully saves the image to the chosen folder, but the image is not displayed in the node.
