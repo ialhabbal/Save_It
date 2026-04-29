@@ -2,5 +2,7 @@ desktop.ini
 Desktop.ini
 Thumbs.db
 .DS_Store
-__pycache__/
-*.pyc
+favorite_folders.json
+node.zip
+__pycache__
+.ruff_cache
