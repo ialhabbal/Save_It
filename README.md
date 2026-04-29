@@ -271,7 +271,7 @@ The counter (`NNNNN`) is stored in a hidden file called `.save_it_counter` insid
 ```
 your_custom_nodes_folder/
 ├── Save_It.py          # Node logic and backend API
-├── save_it.js          # Node UI and frontend behavior
+├── js/save_it.js          # Node UI and frontend behavior
 └── favorite_folders.json   # Auto-created; stores your saved favorite paths
 ```
 
