@@ -50,6 +50,10 @@
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders.png)
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders1.png)
 
+## Update 1.4.1
+
+- Fix save image with metadata while compare is active
+
 ## Update 1.4.0
 
 - Robust fix for compare widget canvas
