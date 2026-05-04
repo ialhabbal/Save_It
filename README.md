@@ -50,6 +50,10 @@
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders.png)
 ![Save_It Node](https://raw.githubusercontent.com/ialhabbal/Save_It/main/media/favorite_folders1.png)
 
+## Update 1.4.2
+
+- Bug fix: Autosave saves current generated image and resaves previous generated image.
+
 ## Update 1.4.1
 
 - Fix save image with metadata while compare is active

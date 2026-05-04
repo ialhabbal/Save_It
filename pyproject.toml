@@ -1,7 +1,7 @@
 [project]
 name = "Save_It"
 description = "Custom Node To Display, Optionally Compare, and Save Images to Pre-Saved Favorite Locations"
-version = "1.4.1"
+version = "1.4.2"
 license = { file = "LICENSE" }
 dependencies = []
 
