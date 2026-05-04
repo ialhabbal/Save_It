@@ -1,4 +1,5 @@
 import folder_paths
+import hashlib
 import json
 import random
 import os
@@ -487,7 +488,7 @@ class Save_It:
         # ORIGINAL (unchanged)
         self.prefix_append = "_save_" + ''.join(random.choice(string.ascii_lowercase) for _ in range(5))
         self.compress_level = 4
-        self.last_prompt_id = None
+        self.last_image_hash = None
 
     @classmethod
     def INPUT_TYPES(s):
@@ -590,7 +591,15 @@ class Save_It:
         ui_images_data = []
 
         if autosave:
-            current_prompt_id = id(prompt) if prompt is not None else None
+            # Compute a stable content hash over all images in the batch so that
+            # re-executions of the exact same pixel data are not saved again.
+            # This replaces the previous id(prompt) guard, which used Python object
+            # identity — an address that is recycled across queue runs, causing the
+            # previous image to be re-saved every time a new generation ran.
+            hasher = hashlib.md5()
+            for image in images:
+                hasher.update(image.cpu().numpy().tobytes())
+            current_image_hash = hasher.hexdigest()
 
             out_base_dir = folder_paths.get_output_directory()
             out_dir, base_name, out_subfolder = resolve_output_dir(filename_prefix, out_base_dir)
@@ -610,6 +619,17 @@ class Save_It:
             _, ext = get_pil_format_and_ext(format)
 
             results = []
+
+            # Decide once per execution whether this is a new image.
+            # The hash check is done outside the per-image loop so that the
+            # guard is evaluated only once and the hash is updated atomically —
+            # preventing the first image in a batch from updating last_image_hash
+            # and causing subsequent images in the same batch to fall through to
+            # the temp-only branch.
+            is_new_image = (current_image_hash != self.last_image_hash)
+            if is_new_image:
+                self.last_image_hash = current_image_hash
+
             for image in images:
                 arr = image.cpu().numpy()
                 if arr.ndim == 3 and arr.shape[0] in (1, 3, 4):
@@ -625,10 +645,9 @@ class Save_It:
                     for key, value in extra_pnginfo.items():
                         metadata.add_text(key, json.dumps(value))
 
-                if current_prompt_id != self.last_prompt_id:
-                    self.last_prompt_id = current_prompt_id
+                if is_new_image:
                     dst_path, new_filename = next_available_path(out_dir, base_name, use_timestamp, ext)
-                    
+
                     save_pil_image(img, dst_path, format, quality,
                                    metadata=(metadata if format == "PNG" else None),
                                    compress_level=self.compress_level)
@@ -668,7 +687,7 @@ class Save_It:
                             "type": "output"
                         })
                 else:
-                    
+
                     output_dir = folder_paths.get_temp_directory()
                     temp_prefix = "save_it_preview" + self.prefix_append
                     temp_results = save_images_with_metadata(

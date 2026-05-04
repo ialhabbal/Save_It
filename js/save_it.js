@@ -814,8 +814,19 @@ app.registerExtension({
                         }
                     } catch (_) {}
 
-                    // AutoSave logic (unchanged)
-                    if (isAutoSave() && this.currentImageA) {
+                    // AutoSave logic
+                    // Only call doSave() when the Python backend did NOT already
+                    // persist the image. When autosave is ON, save_images() saves
+                    // the file and returns type="output". Calling doSave() on top
+                    // of that would invoke the /save_it/save HTTP route a second
+                    // time, writing a duplicate file via next_available_path.
+                    // When autosave is OFF, the backend returns type="temp", so
+                    // doSave() is still needed for the manual-save button flow.
+                    const _alreadySavedByBackend =
+                        isAutoSave() &&
+                        output?.images?.[0]?.type === "output";
+
+                    if (!_alreadySavedByBackend && isAutoSave() && this.currentImageA) {
                         const src = this.currentImageA.src;
                         if (src !== lastSavedSrc) {
                             lastSavedSrc = src;
