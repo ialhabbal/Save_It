@@ -401,7 +401,7 @@ def save_images_with_metadata(images, output_dir, save_type, prompt=None, extra_
 
 # ─── REPLACED: Compare Functionality ────────
 
-def save_compare_images(image_a, original_image, filename_prefix, compress_level=4):
+def save_compare_images(image_a, original_image, filename_prefix, compress_level=4, prompt=None, extra_pnginfo=None):
     """
     Replacement for previous compare helper.
     
@@ -458,7 +458,13 @@ def save_compare_images(image_a, original_image, filename_prefix, compress_level
 
         img = Image.fromarray(arr)
         file = f"{filename}_{counter:05}_.png"
-        img.save(os.path.join(full_output_folder, file), compress_level=compress_level)
+        meta = PngInfo()
+        if prompt:
+            meta.add_text("prompt", json.dumps(prompt))
+        if extra_pnginfo:
+            for key, value in extra_pnginfo.items():
+                meta.add_text(key, json.dumps(value))
+        img.save(os.path.join(full_output_folder, file), pnginfo=meta, compress_level=compress_level)
         entry = {"filename": file, "subfolder": subfolder, "type": "temp"}
         counter += 1
         return entry
@@ -573,7 +579,9 @@ class Save_It:
                 image_a=images,
                 original_image=original_image,
                 filename_prefix=temp_prefix,
-                compress_level=self.compress_level
+                compress_level=self.compress_level,
+                prompt=prompt,
+                extra_pnginfo=extra_pnginfo,
             )
             # `save_compare_images` returns a dict in the form {"ui": {"images": [...]}}
             return compare_ui
